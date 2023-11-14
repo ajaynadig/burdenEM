@@ -1,6 +1,6 @@
 burdenEM <- function(mixture_params, model_type = 'uniform', effect_estimate = NULL,
                      effect_se = NULL, case_count = NULL, case_rate = NULL, p_value = NULL,
-                     features = NULL) {
+                     features = NULL, num_iter = 100) {
 
   # Validate inputs
   stopifnot(is.vector(mixture_params))
@@ -33,13 +33,13 @@ burdenEM <- function(mixture_params, model_type = 'uniform', effect_estimate = N
 
   # Compute likelihood
   likelihood <- matrix(0, nrow = no_tests, ncol = no_cpts)
-  mu_grid <- seq(0.05, 1, by = 0.1)
-  if (model_type == 'uniform' && data_type == 'normal') {
+  mu_grid <- seq(0.05, 1, by = 0.1) #THE FINENESS OF THIS GRID SHOULD PROBABLY BE A USER SPECIFIED VALUE
+  if (model_type == 'uniform' && data_type == 'normal') { #CODE FOR NORMAL DATA LIKELIHOOD PROBABLY BROKEN
     for (kk in 1:no_cpts) {
       mu <- mu_grid * mixture_params[kk]
       sigma <- effect_se
       likelihood[, kk] <- rowMeans(dnorm(effect_estimate, mean = mu, sd = sigma))
-    }
+    } #SHOULD THERE BE LIKELIHOOD CALCULATION FOR NORMAL DATA, NORMAL MODEL HERE?
   } else if (model_type == 'uniform' && data_type == 'poisson') {
     for (kk in 1:no_cpts) {
       # Expand case_count into a matrix by replicating the vector along the columns
@@ -66,7 +66,7 @@ burdenEM <- function(mixture_params, model_type = 'uniform', effect_estimate = N
 
   # EM algorithm
   coefs <- matrix(1, nrow = ncol(features), ncol = no_cpts)
-  for (rep in 1:5) {
+  for (rep in 1:num_iter) {
     weights <- features %*% coefs
     posteriors <- weights * likelihood
     posteriors <- posteriors / replicate(ncol(posteriors),rowSums(posteriors))
@@ -75,6 +75,10 @@ burdenEM <- function(mixture_params, model_type = 'uniform', effect_estimate = N
   }
 
   return(list(coefs = coefs, mixture_params = mixture_params))
+  #Other stuff that we probably should output...
+  # Some sort of convergence indicator i.e. likelihood
+  # Some QC metrics to help check that inferred distribution is plausible
+
 }
 
 poisson_rate <- function(x, p, steps = 100) {
