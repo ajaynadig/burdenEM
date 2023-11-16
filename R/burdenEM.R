@@ -64,13 +64,16 @@ burdenEM <- function(mixture_params, model_type = 'uniform', effect_estimate = N
 
   stopifnot(all(rowSums(features) == 1) & all(features >= 0))
 
+
   # EM algorithm
   coefs <- matrix(1, nrow = ncol(features), ncol = no_cpts)
+  #Pre-invert X_T %*% X to save time
+  OLS_denom = solve(t(features) %*% features)
   for (rep in 1:num_iter) {
     weights <- features %*% coefs
     posteriors <- weights * likelihood
     posteriors <- posteriors / replicate(ncol(posteriors),rowSums(posteriors))
-    coefs <- solve(t(features) %*% features) %*% t(features) %*% posteriors
+    coefs <- OLS_denom %*% t(features) %*% posteriors
     print(coefs)
   }
 
@@ -92,3 +95,4 @@ poisson_rate <- function(x, p, steps = 100) {
 
   return(lambda)
 }
+
