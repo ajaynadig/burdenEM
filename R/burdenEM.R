@@ -74,7 +74,7 @@ burdenEM <- function(mixture_params, model_type = 'uniform', effect_estimate = N
     posteriors <- weights * likelihood
     posteriors <- posteriors / replicate(ncol(posteriors),rowSums(posteriors))
     coefs <- OLS_denom %*% t(features) %*% posteriors
-    print(coefs)
+    #print(coefs)
   }
 
   return(list(coefs = coefs, mixture_params = mixture_params))

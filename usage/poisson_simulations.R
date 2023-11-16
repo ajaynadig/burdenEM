@@ -44,11 +44,11 @@ if (normal_model) {
   case_count <- rpois(nn, lambda)
 
   # Estimation
-  foo = system.time({
+  timediff = system.time({
     coefs_est <- burdenEM(model_params, case_count = case_count, case_rate = case_rate,
                           features = features, model_type = 'uniform')
   })
 }
 
 print(coefs_est)
-print(foo)
+print(timediff)
