@@ -40,10 +40,11 @@ bootstrap_EM <- function(model,
                                   boot_output <- EM_fit(model_boot,
                                                         num_iter)
 
-                                  return(boot_output$coefs)
+                                  return(boot_output$delta)
                                 })
 
-  return(bootstrap_delta)
+  return(list(bootstrap_delta = bootstrap_delta,
+              bootstrap_samples = bootstrap_samples))
 }
 
 null_EM_trio <- function(genetic_data,

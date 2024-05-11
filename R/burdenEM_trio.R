@@ -35,7 +35,7 @@ burdenEM_trio <- function(input_data,
 
   #Bootstrap EM
   if (bootstrap) {
-    model$bootstrap_delta = bootstrap_EM(model,
+    model$bootstrap_output = bootstrap_EM(model,
                                          n_boot,
                                          num_iter)
 
