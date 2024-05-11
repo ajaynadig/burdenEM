@@ -54,7 +54,7 @@ null_EM_trio <- function(genetic_data,
 
   cat("...null EM")
 
-  null_coefs <- sapply(1:n_null,
+  null_coefs <- lapply(1:n_null,
                        function(dummy) {
                          if (dummy %% 20 == 0) {
                            cat(paste0("...",dummy))

@@ -29,3 +29,26 @@ initialize_model <- function(likelihood_function, genetic_data, component_endpoi
                features = features,
                grid_size = grid_size)
 }
+
+posterior_expectation <- function(model,
+                                  function_to_integrate) {
+  weights <- model$features %*% model$delta
+  posteriors = weights * model$conditional_likelihood
+
+  posteriors <- posteriors / rowSums(posteriors)
+
+  no_tests = nrow(model$conditional_likelihood)
+  no_cpts = length(model$component_endpoints)
+
+  conditional_posterior_expectations <- matrix(NA, nrow = no_tests, ncol = no_cpts)
+
+
+  for (kk in 1:no_cpts) {
+
+  function_vals = t(replicate(no_tests,
+                                  function_to_integrate(mu_grid * mixture_params[kk])))
+  conditional_posterior_expectations[,kk] <- rowMeans(function_vals * model$conditional_likelihood)/rowMeans(model$conditional_likelihood)
+  }
+
+  posterior_expectations = rowSums(posteriors * conditional_posterior_expectations)
+}
