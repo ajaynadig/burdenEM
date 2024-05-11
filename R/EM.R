@@ -45,3 +45,39 @@ bootstrap_EM <- function(model,
 
   return(bootstrap_delta)
 }
+
+null_EM_trio <- function(genetic_data,
+                         model,
+                         num_iter,
+                         n_null) {
+
+  cat("...null EM")
+
+  null_coefs <- sapply(1:n_null,
+                       function(dummy) {
+                         if (dummy %% 20 == 0) {
+                           cat(paste0("...",dummy))
+                         }
+
+                         genetic_data_null = genetic_data
+
+                         genetic_data_null$case_count = rpois(nrow(genetic_data),
+                                                              genetic_data$expected_count)
+
+                         model_null = initialize_model(likelihood_function = poisson_uniform_likelihood,
+                                                       genetic_data = genetic_data_null,
+                                                       component_endpoints = mixture_params,
+                                                       features = features,
+                                                       grid_size = grid_size)
+
+
+                         model_null = EM_fit(model_null,
+                                             num_iter)
+
+                         return(model_null$delta)
+
+                       })
+
+
+  return(null_coefs)
+}

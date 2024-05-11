@@ -9,7 +9,8 @@ burdenEM_trio <- function(input_data,
                      prevalence = NULL,
                      bootstrap = TRUE,
                      n_boot = 100,
-                     n_sample_nulldisth2 = 100,
+                     null_sim = TRUE,
+                     n_null = 100,
                      return_likelihood = FALSE,
                      estimate_posteriors = FALSE) {
 
@@ -38,6 +39,13 @@ burdenEM_trio <- function(input_data,
                                          n_boot,
                                          num_iter)
 
+  }
+
+  if (null_sim) {
+    model$null_delta = null_EM_trio(genetic_data,
+                                    model,
+                                    num_iter,
+                                    n_null)
   }
 
 
