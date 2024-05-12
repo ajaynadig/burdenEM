@@ -69,7 +69,7 @@ null_EM_trio <- function(genetic_data,
                          model_null = initialize_model(likelihood_function = poisson_uniform_likelihood,
                                                        genetic_data = genetic_data_null,
                                                        component_endpoints = model$component_endpoints,
-                                                       features = modelfeatures,
+                                                       features = model$features,
                                                        grid_size = grid_size)
 
 
