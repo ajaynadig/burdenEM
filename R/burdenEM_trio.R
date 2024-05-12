@@ -25,9 +25,10 @@ burdenEM_trio <- function(input_data,
   cat("...initializing model")
   model = initialize_model(likelihood_function = poisson_uniform_likelihood,
                            genetic_data = genetic_data,
-                           component_endpoints = mixture_params,
+                           component_endpoints = component_endpoints,
                            features = features,
                            grid_size = grid_size)
+
 
   #Full data EM
   cat("...running EM in full dataset")
@@ -46,7 +47,8 @@ burdenEM_trio <- function(input_data,
     model$null_delta = null_EM_trio(genetic_data,
                                     model,
                                     num_iter,
-                                    n_null)
+                                    n_null,
+                                    grid_size)
   }
 
   if (heritability_est) {
@@ -124,8 +126,11 @@ burdenEM_trio <- function(input_data,
   }
 
   #Get some posterior expectations
+
   model$posterior_means <- posterior_expectation(model,
-                                           exp)
+                                                 genetic_data,
+                                                 exp,
+                                                 grid_size)
 
   return(model)
 

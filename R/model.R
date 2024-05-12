@@ -10,9 +10,15 @@ choose_component_endpoints_trio = function(component_endpoints,
   }
 }
 
-initialize_model <- function(likelihood_function, genetic_data, component_endpoints,features, grid_size){
+initialize_model <- function(likelihood_function,
+                             genetic_data,
+                             component_endpoints,
+                             features,
+                             grid_size){
 
-  conditional_likelihood = likelihood_function(genetic_data, component_endpoints,grid_size)
+  conditional_likelihood = likelihood_function(genetic_data,
+                                               component_endpoints,
+                                               grid_size)
 
   no_cpts = length(component_endpoints)
 
@@ -31,7 +37,9 @@ initialize_model <- function(likelihood_function, genetic_data, component_endpoi
 }
 
 posterior_expectation <- function(model,
-                                  function_to_integrate) {
+                                  genetic_data,
+                                  function_to_integrate,
+                                  grid_size) {
   weights <- model$features %*% model$delta
   posteriors = weights * model$conditional_likelihood
 
@@ -42,12 +50,22 @@ posterior_expectation <- function(model,
 
   conditional_posterior_expectations <- matrix(NA, nrow = no_tests, ncol = no_cpts)
 
+  mu_grid = seq(0.05,1,by = 1/grid_size)
 
   for (kk in 1:no_cpts) {
+    #Expand case_count into a matrix by replicating the vector along the columns
+    case_count_matrix <- replicate(grid_size,genetic_data$case_count)
 
-  function_vals = t(replicate(no_tests,
-                                  function_to_integrate(mu_grid * mixture_params[kk])))
-  conditional_posterior_expectations[,kk] <- rowMeans(function_vals * model$conditional_likelihood)/rowMeans(model$conditional_likelihood)
+    # Calculate the rate for each mu value in the grid and each case count
+    rate <- genetic_data$expected_count * t(replicate(no_tests,exp(mu_grid * model$component_endpoints[kk])))
+
+    # Compute the likelihood for each case count and rate combination
+    likelihoods <- dpois(case_count_matrix, rate)
+
+    function_vals = t(replicate(no_tests,
+                                  function_to_integrate(mu_grid * model$component_endpoints[kk])))
+
+    conditional_posterior_expectations[,kk] <- rowMeans(function_vals * likelihoods)/rowMeans(likelihoods)
   }
 
   posterior_expectations = rowSums(posteriors * conditional_posterior_expectations)
