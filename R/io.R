@@ -20,3 +20,40 @@ process_data_trio <- function(input_data,
 
 return(input_data)
 }
+
+
+# TODO: file formatting
+process_data_rvas <- function(input_data,
+                              features){
+
+  if(is.null(input_data$effect_estimate)){
+    if(!is.null(input_data$z_score) & !is.null(input_data$AF) & !is.null(input_data$N)){
+      input_data$effect_estimate <- input_data$z_score/sqrt(2*input_data$AF*(1-input_data$AF)*(input_data$N + input_data$z_score^2))
+    }else{
+      stop("effect estimates is missing from the data, please check")
+    }
+  }else{
+    if (is.null(input_data$effect_se)) {
+      stopifnot(!is.null(input_data$p_value))  # p_value must be specified if effect_se is not
+      input_data$z_score <- qnorm(1 - input_data$p_value / 2) * sign(input_data$effect_estimate)
+      input_data$effect_se <- abs(input_data$effect_estimate / input_data$z_score)
+    }
+    stopifnot(length(input_data$effect_se) == length(input_data$effect_estimate))
+  }
+
+  if (any(is.na(input_data))) {
+    stop("NAs present in input data, please check")
+  } else if ( !is.null(features) & any(is.na(features))) {
+    stop("NAs present in features, please check")
+  }
+
+  if (!is.null(features) & !(all(rownames(input_data) == rownames(features)))) {
+    stop("features rownames do not match input data rownames, please check")
+  }
+
+  if(!all(rowSums(features) == 1) & all(features >= 0)){
+    stop("features need to be all positive with rowSum of 1, please check")
+  } # TO CHECK
+
+  return(list(input_data=input_data, features=features)) # TO CHECK
+}

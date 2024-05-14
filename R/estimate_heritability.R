@@ -34,3 +34,8 @@ estimate_heritability_trio <- function(model,
               frac_expected = frac_expected,
               enrichment = enrichment))
 }
+
+estimate_heritability_rvas <- function(model,
+                                       genetic_data){
+
+}

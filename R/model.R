@@ -10,6 +10,18 @@ choose_component_endpoints_trio = function(component_endpoints,
   }
 }
 
+choose_component_endpoints_rvas <- function(component_endpoints,
+                                           no_cpts,
+                                           input_data) {
+  if (is.null(component_endpoints)) {
+    lower_bound_5 = quantile(input_data$effect_estimate)
+    upper_bound_95 = quantile(input_data$effect_estimate)
+    component_endpoints = c(min, seq(lower_bound_5, upper_bound_95, length.out = no_cpts), max)
+  }
+  return(component_endpoints)
+}
+
+
 initialize_model <- function(likelihood_function,
                              genetic_data,
                              component_endpoints,

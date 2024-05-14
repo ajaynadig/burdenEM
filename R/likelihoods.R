@@ -29,3 +29,25 @@ poisson_uniform_likelihood <- function(genetic_data,
   return(likelihood)
 }
 
+normal_uniform_likelihood <- function(genetic_data,
+                                      component_endpoints,
+                                      grid_size){
+
+  no_cpts <- length(component_endpoints)
+  no_genes <- nrow(genetic_data)
+
+  likelihood <- matrix(NA,
+                       nrow = no_genes,
+                       ncol = no_cpts)
+
+  mu_grid = seq(0.05,1,by = 1/grid_size)
+
+  for (kk in 1:no_cpts) {
+      mu <- mu_grid * mixture_params[kk]
+      likelihood[,kk] <- rowMeans(
+        sapply(mu,
+               function(x){dnorm(x = genetic_data$effect_estimate - x, mean = 0, sd = genetic_data$effect_se)})
+      )
+  }
+  return(likelihood)
+}
