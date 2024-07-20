@@ -1,5 +1,8 @@
-source(paste0(getwd(), '/R/io.R'))
-source(paste0(getwd(), '/R/model.R'))
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/io.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/model.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/likelihoods.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/EM.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/estimate_heritability.R')
 
 #burdenEM_rvas
 burdenEM_rvas <- function(input_data,
@@ -8,6 +11,7 @@ burdenEM_rvas <- function(input_data,
                           no_cpts = 10,
                           grid_size = 10,
                           heritability_est = TRUE,
+                          polygenicity_est = TRUE,
                           num_iter =500,
                           prevalence = NULL,
                           bootstrap = TRUE,
@@ -15,6 +19,7 @@ burdenEM_rvas <- function(input_data,
                           null_sim = TRUE,
                           n_null = 100,
                           return_likelihood = FALSE,
+                          qq_plot=FALSE,
                           estimate_posteriors = FALSE) {
 
 
@@ -26,7 +31,7 @@ burdenEM_rvas <- function(input_data,
                                                         no_cpts,
                                                         input_data)
   cat("...initializing model")
-  model = initialize_model(likelihood_function = normal_uniform_likelihood(),
+  model = initialize_model(likelihood_function = likelihood_function_rvas(trait_type=unique(input_data$trait_type)),
                            genetic_data = genetic_data,
                            component_endpoints = component_endpoints,
                            features = features,
@@ -47,18 +52,21 @@ burdenEM_rvas <- function(input_data,
   }
 
   if (null_sim) {
-    model$null_delta = null_EM_trio(genetic_data,
+    model$null_delta = null_EM_rvas(genetic_data,
                                     model,
                                     num_iter,
                                     n_null,
                                     grid_size) # TODO
+  } # TODO: check and/or edit
+
+  if(polygenicity_est){
+    model$polygenicity <- estimate_polygenicity_rvas(genetic_data = genetic_data, model = model)
   }
 
   if (heritability_est) {
-    #estimate heritability in the full dataset
-    model$heritability_output = estimate_heritability_trio(model = model,
-                                                           genetic_data = genetic_data,
-                                                           prevalence = prevalence)
+    print('... Estimate heritability in the full dataset')
+    model$heritability_output = estimate_heritability_rvas(model = model,
+                                                           genetic_data = genetic_data)
 
     #bootstrap heritability estimation
     if (bootstrap) {
@@ -72,9 +80,8 @@ burdenEM_rvas <- function(input_data,
                                                 model_boot$features = model_boot$features[model$bootstrap_output$bootstrap_samples[,iter],]
                                                 model_boot$delta = model$bootstrap_output$bootstrap_delta[[iter]]
 
-                                                boot_heritability = estimate_heritability_trio(model = model_boot,
-                                                                                               genetic_data = genetic_data[model$bootstrap_output$bootstrap_samples[,iter],],
-                                                                                               prevalence = prevalence)
+                                                boot_heritability = estimate_heritability_rvas(model = model_boot,
+                                                                                               genetic_data = genetic_data[model$bootstrap_output$bootstrap_samples[,iter],])
 
                                               })
 
@@ -94,15 +101,15 @@ burdenEM_rvas <- function(input_data,
                             quantile(bootstrap_frach2_ests[i,],c(0.025,0.975))
                           })
 
-      bootstrap_enrich_ests = sapply(1:length(bootstrap_heritability_output), function(x) bootstrap_heritability_output[[x]]$enrichment)
-      enrich_CI = sapply(1:nrow(bootstrap_enrich_ests),
-                         function(i) {
-                           quantile(bootstrap_enrich_ests[i,],c(0.025,0.975))
-                         })
+      # bootstrap_enrich_ests = sapply(1:length(bootstrap_heritability_output), function(x) bootstrap_heritability_output[[x]]$enrichment)
+      # enrich_CI = sapply(1:nrow(bootstrap_enrich_ests),
+      #                    function(i) {
+      #                      quantile(bootstrap_enrich_ests[i,],c(0.025,0.975))
+      #                    })
       model$heritability_output$heritability_CI = heritability_CI
       model$heritability_output$annot_h2_CI = annot_h2_CI
       model$heritability_output$frach2_CI = frach2_CI
-      model$heritability_output$enrich_CI = enrich_CI
+      # model$heritability_output$enrich_CI = enrich_CI
 
     }
 
@@ -113,13 +120,13 @@ burdenEM_rvas <- function(input_data,
                                model_null = model
                                model_null$delta = model$null_delta[[iter]]
 
-                               null_heritability = estimate_heritability_trio(model = model_null,
-                                                                              genetic_data = genetic_data,
-                                                                              prevalence = prevalence)
+                               null_heritability = estimate_heritability_rvas(model = model_null,
+                                                                              genetic_data = genetic_data)
 
                                return(null_heritability$total_h2)
 
                              })
+      print(null_h2_ests)
 
       model$heritability_output$null_h2_ests = null_h2_ests
       model$heritability_output$total_h2_p = mean(model$heritability_output$null_h2_ests > model$heritability_output$total_h2 )
@@ -128,12 +135,23 @@ burdenEM_rvas <- function(input_data,
 
   }
 
-  #Get some posterior expectations
+  # Generate data for QQplots
+  if(qq_plot){
+    if(all(is.nan(model$delta))){
+      model$qq_data <- data.frame()
+    }else{
+      model$qq_data <- compute_estimate_expected_rvas(genetic_data, model)
+    }
 
-  model$posterior_means <- posterior_expectation(model,
-                                                 genetic_data,
-                                                 exp,
-                                                 grid_size)
+  }
+
+  #Get some posterior expectations
+  if(estimate_posteriors){
+    model$posterior_means <- posterior_expectation(model,
+                                                   genetic_data,
+                                                   exp,
+                                                   grid_size)
+  } # TODO: edit
 
   return(model)
 

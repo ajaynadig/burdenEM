@@ -8,7 +8,9 @@ EM_fit <- function(model,
   for (iter in 1:num_iter) {
     weights <- model$features %*% model$delta
     posteriors <- weights * model$conditional_likelihood
-    posteriors <- posteriors / rowSums(posteriors)
+    posteriors_rowsums <- rowSums(posteriors)
+    posteriors_rowsums <- if_else(posteriors_rowsums == 0, 1e-300, posteriors_rowsums)
+    posteriors <- posteriors / posteriors_rowsums
     model$delta <- OLS_denom_t_features %*% posteriors
   }
 
@@ -67,6 +69,43 @@ null_EM_trio <- function(genetic_data,
                                                               genetic_data$expected_count)
 
                          model_null = initialize_model(likelihood_function = poisson_uniform_likelihood,
+                                                       genetic_data = genetic_data_null,
+                                                       component_endpoints = model$component_endpoints,
+                                                       features = model$features,
+                                                       grid_size = grid_size)
+
+
+                         model_null = EM_fit(model_null,
+                                             num_iter)
+
+                         return(model_null$delta)
+
+                       })
+
+
+  return(null_coefs)
+}
+
+null_EM_rvas <- function(genetic_data,
+                         model,
+                         num_iter,
+                         n_null,
+                         grid_size) {
+
+  cat("...null EM")
+
+  null_coefs <- lapply(1:n_null,
+                       function(dummy) {
+                         if (dummy %% 20 == 0) {
+                           cat(paste0("...",dummy))
+                         }
+
+                         genetic_data_null = genetic_data
+
+                         genetic_data_null$effect_estimate  = rnorm(nrow(genetic_data), mean = genetic_data$effect_estimate,
+                                                              sd=genetic_data$effect_se/sqrt(genetic_data$N))
+
+                         model_null = initialize_model(likelihood_function = normal_uniform_likelihood,
                                                        genetic_data = genetic_data_null,
                                                        component_endpoints = model$component_endpoints,
                                                        features = model$features,

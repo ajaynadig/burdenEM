@@ -22,7 +22,6 @@ return(input_data)
 }
 
 
-# TODO: file formatting
 process_data_rvas <- function(input_data,
                               features){
 
@@ -47,13 +46,38 @@ process_data_rvas <- function(input_data,
     stop("NAs present in features, please check")
   }
 
-  if (!is.null(features) & !(all(rownames(input_data) == rownames(features)))) {
-    stop("features rownames do not match input data rownames, please check")
+  if (is.null(input_data$N)){
+    warning('Sample size (`N`) is missing from the data, which might be required for heritability estimation')
   }
 
-  if(!all(rowSums(features) == 1) & all(features >= 0)){
-    stop("features need to be all positive with rowSum of 1, please check")
-  } # TO CHECK
+  if (is.null(input_data$CAF)){
+    warning('Combined Allele Frequency (`CAF`) is missing from the data, which might be required for power analyses')
+  }
 
-  return(list(input_data=input_data, features=features)) # TO CHECK
+  if (is.null(input_data$trait_type)){
+    warning('Trait type (`trait_type`) is missing from the data,\nwhich should be one of ("binary", "continuous") and is required for specifying likelihood model and power calculation.
+            \nForcing it to be "continuous" for now')
+    input_data$trait_type <- 'continuous'
+  }else{
+    if(tolower(unique(input_data$trait_type)) %in% c('binary', 'categorical', 'qualitative')){
+      input_data$trait_type <- 'binary'
+    }else{
+      input_data$trait_type <- 'continuous'
+    }
+  }
+
+  if (is.null(input_data$AC_cases)){
+    warning('Allele Counts in Cases (`AC_cases`) is missing from the data, which is required for binary traits')
+  }
+
+  if (!is.null(features) ) {
+    if(!(all(rownames(input_data) == rownames(features)))){
+      stop("features rownames do not match input data rownames, please check")
+    }
+    if(!all(rowSums(features) == 1) & all(features >= 0)){
+      stop("features need to be all positive with rowSum of 1, please check")
+    }
+  }
+
+  return(input_data)
 }
