@@ -14,11 +14,12 @@ choose_component_endpoints_rvas <- function(component_endpoints,
                                            no_cpts,
                                            input_data) {
   if (is.null(component_endpoints)) {
-    lower_bound_5 = unlist(quantile(input_data$effect_estimate, probs = c(0.05)))
-    upper_bound_95 = unlist(quantile(input_data$effect_estimate, probs = c(0.95)))
-    component_endpoints = c(min(input_data$effect_estimate),
-                            seq(lower_bound_5, upper_bound_95, length.out = (no_cpts-2)),
-                            max(input_data$effect_estimate))
+    lower_bound = unlist(quantile(input_data$effect_estimate, probs = c(0.001)))
+    upper_bound = unlist(quantile(input_data$effect_estimate, probs = c(0.999)))
+    bound = max(abs(min(input_data$effect_estimate)), abs(max(input_data$effect_estimate)))
+    component_endpoints = c(-bound,
+                            seq(lower_bound, upper_bound, length.out = (no_cpts-2)),
+                            bound)
   }
   return(component_endpoints)
 }

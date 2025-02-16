@@ -1,39 +1,29 @@
 compute_estimate_expected_rvas <- function(input_data,
-                                           model,
-                                           mean_intercept_nn=1) {
+                                           model) {
   if(is.null(input_data$annotation)){
     input_data$annotation <- 1
     print('Plotting all data points together as a single group...')
   }
 
   no_genes <- nrow(input_data)
-  no_samples <- mean(input_data$N)
+  no_draws <- 1e7
+  no_samples <- unique(input_data$mean_n)[1]
+  mean_intercept_nn <- unique(input_data$mean_variant_intercept)[1]
+  weights_agg <- colSums(model$delta)/5
 
-  # Set initial parameters
-  samples <- numeric(0)  # Initialize as an empty numeric vector
-
-  # Sample sizes for each weight
-  sample_sizes <- floor(no_samples * model$delta)
-  sample_sizes <- as.integer(sample_sizes)  # Ensure integer values
-
-  if (all(sample_sizes == 0)) {
-    stop("All sample sizes are zero.")
-  }
-
-  # Generate samples in a vectorized way
-  samples <- unlist(mapply(function(endpoint, size) {
-    if (size > 0) {
-      endpoint * runif(size)
-    } else {
-      numeric(0)
-    }
-  }, model$component_endpoints, sample_sizes))
+  # Generate draws in a vectorized way
+  draws <- unlist(sapply(1:length(model$component_endpoints),
+                         function(i){
+                           model$component_endpoints[i] * runif(as.integer(floor(no_draws * weights_agg[i])))
+                           }))
 
   # Add noise
-  samples <- samples + rnorm(no_samples, sd = sqrt(mean_intercept_nn))
+  no_draws <- length(draws)
+  draws <- draws + rnorm(no_draws) * sqrt(mean_intercept_nn / no_samples)
+
 
   # Compute estimated quantiles
-  est <- quantile(samples * sqrt(mean_intercept_nn), ((1:no_genes) / no_genes) - 0.5 / no_genes)
+  est <- quantile(draws * sqrt(no_samples), ((1:no_genes) / no_genes) - 0.5 / no_genes)
 
   est_data <- data.frame(observed=est) %>%
     dplyr::arrange(observed) %>%
@@ -51,12 +41,12 @@ compute_true_expected_rvas <- function(input_data){
   qq_data <- input_data %>%
     dplyr::group_by(annotation) %>%
     dplyr::mutate(
-           Z = effect_estimate/as.numeric(effect_se),
-           n_genes = n()) %>%
+      Z = gamma_perSD*sqrt(mean_n/mean_variant_intercept),
+      n_genes = n()) %>%
     dplyr::group_by(annotation) %>%
     dplyr::arrange(Z) %>%
     dplyr::mutate(index = row_number()) %>%
-    dplyr::mutate(observed = Z/sqrt(1) ,
+    dplyr::mutate(observed = Z,
                   expected = qnorm(index/n_genes))
   return(qq_data)
 }

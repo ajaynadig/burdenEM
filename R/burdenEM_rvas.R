@@ -3,6 +3,7 @@ source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/model.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/likelihoods.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/EM.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/estimate_heritability.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/qqplot.R')
 
 #burdenEM_rvas
 burdenEM_rvas <- function(input_data,
@@ -23,13 +24,15 @@ burdenEM_rvas <- function(input_data,
                           estimate_posteriors = FALSE) {
 
 
-
+  if (is.null(features)) {
+    features <- matrix(1, nrow = nrow(input_data), ncol = 1)
+  }
   genetic_data = process_data_rvas(input_data,
                                    features)
 
   component_endpoints = choose_component_endpoints_rvas(component_endpoints,
                                                         no_cpts,
-                                                        input_data)
+                                                        genetic_data)
   cat("...initializing model")
   model = initialize_model(likelihood_function = likelihood_function_rvas(trait_type=unique(input_data$trait_type)),
                            genetic_data = genetic_data,
@@ -56,8 +59,8 @@ burdenEM_rvas <- function(input_data,
                                     model,
                                     num_iter,
                                     n_null,
-                                    grid_size) # TODO
-  } # TODO: check and/or edit
+                                    grid_size)
+  }
 
   if(polygenicity_est){
     model$polygenicity <- estimate_polygenicity_rvas(genetic_data = genetic_data, model = model)
@@ -72,9 +75,6 @@ burdenEM_rvas <- function(input_data,
     if (bootstrap) {
       bootstrap_heritability_output <- lapply(1:n_boot,
                                               function(iter) {
-
-
-
                                                 model_boot = model
                                                 model_boot$conditional_likelihood = model_boot$conditional_likelihood[model$bootstrap_output$bootstrap_samples[,iter],]
                                                 model_boot$features = model_boot$features[model$bootstrap_output$bootstrap_samples[,iter],]
@@ -101,15 +101,15 @@ burdenEM_rvas <- function(input_data,
                             quantile(bootstrap_frach2_ests[i,],c(0.025,0.975))
                           })
 
-      # bootstrap_enrich_ests = sapply(1:length(bootstrap_heritability_output), function(x) bootstrap_heritability_output[[x]]$enrichment)
-      # enrich_CI = sapply(1:nrow(bootstrap_enrich_ests),
-      #                    function(i) {
-      #                      quantile(bootstrap_enrich_ests[i,],c(0.025,0.975))
-      #                    })
+      bootstrap_enrich_ests = sapply(1:length(bootstrap_heritability_output), function(x) bootstrap_heritability_output[[x]]$enrichment)
+      enrich_CI = sapply(1:nrow(bootstrap_enrich_ests),
+                         function(i) {
+                           quantile(bootstrap_enrich_ests[i,],c(0.025,0.975))
+                         })
       model$heritability_output$heritability_CI = heritability_CI
       model$heritability_output$annot_h2_CI = annot_h2_CI
       model$heritability_output$frach2_CI = frach2_CI
-      # model$heritability_output$enrich_CI = enrich_CI
+      model$heritability_output$enrich_CI = enrich_CI
 
     }
 
@@ -126,31 +126,20 @@ burdenEM_rvas <- function(input_data,
                                return(null_heritability$total_h2)
 
                              })
-      print(null_h2_ests)
 
       model$heritability_output$null_h2_ests = null_h2_ests
       model$heritability_output$total_h2_p = mean(model$heritability_output$null_h2_ests > model$heritability_output$total_h2 )
     }
-
-
   }
 
   # Generate data for QQplots
   if(qq_plot){
-    if(all(is.nan(model$delta))){
-      model$qq_data <- data.frame()
-    }else{
       model$qq_data <- compute_estimate_expected_rvas(genetic_data, model)
-    }
-
   }
 
   #Get some posterior expectations
   if(estimate_posteriors){
-    model$posterior_means <- posterior_expectation(model,
-                                                   genetic_data,
-                                                   exp,
-                                                   grid_size)
+
   } # TODO: edit
 
   return(model)
