@@ -3,25 +3,26 @@ source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/model.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/likelihoods.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/EM.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/estimate_heritability.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/polygenicity.R')
 source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/qqplot.R')
+source('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/R/power.R')
 
 #burdenEM_rvas
 burdenEM_rvas <- function(input_data,
-                          features = NULL,
-                          component_endpoints = NULL,
-                          no_cpts = 10,
-                          grid_size = 10,
-                          heritability_est = TRUE,
-                          polygenicity_est = TRUE,
-                          num_iter =500,
-                          prevalence = NULL,
-                          bootstrap = TRUE,
-                          n_boot = 100,
-                          null_sim = TRUE,
-                          n_null = 100,
-                          return_likelihood = FALSE,
+                          features=NULL,
+                          component_endpoints=NULL,
+                          no_cpts=10,
+                          grid_size=100,
+                          heritability_est=FALSE,
+                          polygenicity_est=FALSE,
+                          num_iter=1000,
+                          bootstrap=FALSE,
+                          n_boot=100,
+                          null_sim=FALSE,
+                          n_null=100,
+                          return_likelihood=FALSE,
                           qq_plot=FALSE,
-                          estimate_posteriors = FALSE) {
+                          estimate_posteriors=FALSE) {
 
 
   if (is.null(features)) {
@@ -139,8 +140,18 @@ burdenEM_rvas <- function(input_data,
 
   #Get some posterior expectations
   if(estimate_posteriors){
+    alpha <- 0.05/nrow(genetic_data)
+    chisq_threshold <- qchisq(1 - alpha, df = 1)
+    mean_n <- unique(genetic_data$mean_n)
+    mean_variant_intercept <- unique(genetic_data$mean_variant_intercept)
+    nn <- mean_n/mean_variant_intercept
+    model$nn <- nn
+    model$posterior_effects <- posterior_expectation_rvas(model=model, genetic_data = genetic_data,
+                                                    function_to_integrate=function(x){return(x)}, grid_size=grid_size)
+    model$posterior_power <- posterior_expectation_rvas(model=model, genetic_data = genetic_data,
+                                                    function_to_integrate=function(x){return(powerfn(x, a=chisq_threshold, n=nn))}, grid_size=grid_size)
 
-  } # TODO: edit
+  }
 
   return(model)
 

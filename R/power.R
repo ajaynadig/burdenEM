@@ -1,4 +1,8 @@
-# Power test
+# Power function
+powerfn <- function(x, a, n) {
+  pnorm(sqrt(n) * x - sqrt(a)) + pnorm(-sqrt(n) * x - sqrt(a))
+}
+
 NTPR <- function(bb, pp, nn, alpha) {
   # NTPR computes the not-by-chance true positive rate for a mixture of uniform
   # distributions with parameters [0,b] for b in bb, or [b,0] if b<0, and
@@ -14,11 +18,6 @@ NTPR <- function(bb, pp, nn, alpha) {
   stopifnot(is.vector(pp))
 
   chisq_threshold <- qchisq(1 - alpha, df = 1)
-
-  # Power function
-  powerfn <- function(x, a, n) {
-    pnorm(sqrt(n) * x - sqrt(a)) + pnorm(-sqrt(n) * x - sqrt(a))
-  }
 
   # Not-by-chance true positive rate function
   ntprfn <- function(x, a, n) {
@@ -54,8 +53,6 @@ NTPR <- function(bb, pp, nn, alpha) {
 
     h2gwas <- xx^2
     h2gwas_array <- array(h2gwas, dim = c(length(alpha), length(nn), length(xx))) # Ensure dimensions match
-    print(dim(pow))
-    print(dim(h2gwas_array))
 
     # Now perform element-wise multiplication after ensuring conformity
     cpt_h2gwas <- apply(pow * h2gwas_array, c(1, 2), mean)

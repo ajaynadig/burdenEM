@@ -39,6 +39,7 @@ normal_uniform_likelihood <- function(genetic_data,
   likelihood <- matrix(NA,
                        nrow = no_genes,
                        ncol = no_cpts)
+  rownames(likelihood) <- genetic_data$gene
 
   mu_grid = seq(0.05,1,by = 1/grid_size)
 
