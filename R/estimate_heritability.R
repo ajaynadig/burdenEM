@@ -1,20 +1,25 @@
 #heritability estimation functions
 estimate_heritability_trio <- function(model,
                                        genetic_data,
-                                       prevalence) {
+                                       prevalence,
+                                       gamma_scaling_factor = 1) {
+  #  print(model$delta)
   annot_h2 <- sapply(1:ncol(model$features),
                      function(x) {
+                       # print(model$delta)
                        mixing_weights = model$delta[x,]
                        mixing_weights[mixing_weights < 0] <- 0
 
                        #sample rate ratios
-                       loggamma_samples = sample(model$component_endpoints, size = 100000, prob =mixing_weights, replace = TRUE)
-                       gamma_samples_trunc = pmin(exp(loggamma_samples),1/prevalence)
+                       endpoint_samples = sample(model$component_endpoints, size = 100000, prob =mixing_weights, replace = TRUE)
+                       loggamma_samples = runif(100000,min = pmin(0,endpoint_samples), max = pmax(0,endpoint_samples)) * gamma_scaling_factor
+                       # gamma_samples_trunc = pmin(exp(loggamma_samples),1/prevalence)
+                       gamma_samples = exp(loggamma_samples)
 
                        #sample mutation rates
                        mu_samples <- sample(genetic_data$case_rate[model$features[,x] ==1], size = 100000, replace = TRUE)
 
-                       heritability = sum(model$features[,x]) * (prevalence * mean((gamma_samples_trunc -1)^2 * mu_samples))/(1-prevalence)
+                       heritability = sum(model$features[,x]) * (prevalence * mean((gamma_samples -1)^2 * 2*mu_samples))/(1-prevalence)
                      })
 
 
