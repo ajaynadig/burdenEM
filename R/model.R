@@ -1,8 +1,8 @@
 #Functions to manipulate burdenEM models
 
 choose_component_endpoints_trio = function(component_endpoints,
-                                 no_cpts,
-                                 prevalence) {
+                                           no_cpts,
+                                           prevalence) {
   if (!is.null(component_endpoints)) {
     return(component_endpoints)
   } else {
@@ -31,9 +31,9 @@ initialize_model <- function(likelihood_function,
                              features,
                              grid_size){
 
-  conditional_likelihood = likelihood_function(genetic_data=genetic_data,
-                                               component_endpoints=component_endpoints,
-                                               grid_size=grid_size)
+  conditional_likelihood = likelihood_function(genetic_data,
+                                               component_endpoints,
+                                               grid_size)
 
   no_cpts = length(component_endpoints)
 
@@ -42,7 +42,7 @@ initialize_model <- function(likelihood_function,
     rownames(features) = rownames(genetic_data)
   }
 
-  delta_init = matrix(1, nrow = ncol(features), ncol = no_cpts)
+  delta_init = matrix(1/no_cpts, nrow = ncol(features), ncol = no_cpts)
 
   model = list(component_endpoints = component_endpoints,
                delta = delta_init,
@@ -69,16 +69,16 @@ posterior_expectation <- function(model,
 
   for (kk in 1:no_cpts) {
     #Expand case_count into a matrix by replicating the vector along the columns
-    case_count_matrix <- replicate(grid_size,genetic_data$case_count)
+    case_count_matrix <- replicate(length(mu_grid),genetic_data$case_count)
 
     # Calculate the rate for each mu value in the grid and each case count
     rate <- genetic_data$expected_count * t(replicate(no_tests,exp(mu_grid * model$component_endpoints[kk])))
 
-    # Compute the likelihood for each case count and rate combination: likelihood within each components
+    # Compute the likelihood for each case count and rate combination
     likelihoods <- dpois(case_count_matrix, rate)
 
     function_vals = t(replicate(no_tests,
-                                  function_to_integrate(mu_grid * model$component_endpoints[kk])))
+                                function_to_integrate(mu_grid * model$component_endpoints[kk])))
 
     conditional_posterior_expectations[,kk] <- rowMeans(function_vals * likelihoods)/rowMeans(likelihoods)
   }
@@ -114,4 +114,25 @@ posterior_expectation_rvas <- function(model,
   }
   posterior_expectations = rowSums(posteriors * conditional_posterior_expectations)
   return(posterior_expectations)
+}
+
+effective_penetrance_func <- function(model,
+                                      genetic_data,
+                                      prevalence) {
+  peneff_numerator =  mean(posterior_expectation(model,
+                                                 genetic_data,
+                                                 function(x) {
+                                                   (exp(x)-1)*exp(x)
+                                                 },
+                                                 grid_size = 10))
+
+  peneff_denominator = mean(posterior_expectation(model,
+                                                  genetic_data,
+                                                  function(x) {
+                                                    (exp(x)-1)
+                                                  },
+                                                  grid_size = 10))
+
+  peneff = prevalence * (peneff_numerator/peneff_denominator)
+  return(peneff)
 }
