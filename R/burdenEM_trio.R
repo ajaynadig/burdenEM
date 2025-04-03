@@ -1,18 +1,22 @@
 #burdenEM_trio
 burdenEM_trio <- function(input_data,
-                     features = NULL,
-                     component_endpoints = NULL,
-                     no_cpts = 10,
-                     grid_size = 10,
-                     heritability_est = TRUE,
-                     num_iter =500,
-                     prevalence = NULL,
-                     bootstrap = TRUE,
-                     n_boot = 100,
-                     null_sim = TRUE,
-                     n_null = 100,
-                     return_likelihood = FALSE,
-                     estimate_posteriors = FALSE) {
+                          features = NULL,
+                          component_endpoints = NULL,
+                          no_cpts = 10,
+                          grid_size = 10,
+                          heritability_est = TRUE,
+                          max_iter =10000,
+                          max_iter_boot = 1000,
+                          tol = 1e-6,
+                          prevalence = NULL,
+                          bootstrap = TRUE,
+                          bootstrap_samples = NULL,
+                          n_boot = 100,
+                          null_sim = TRUE,
+                          n_null = 100,
+                          return_likelihood = TRUE,
+                          estimate_posteriors = FALSE,
+                          estimate_effective_penetrance = TRUE) {
 
 
 
@@ -33,20 +37,23 @@ burdenEM_trio <- function(input_data,
   #Full data EM
   cat("...running EM in full dataset")
   model = EM_fit(model,
-                 num_iter)
+                 max_iter,
+                 tol = tol,
+                 return_likelihood = return_likelihood)
 
   #Bootstrap EM
   if (bootstrap) {
     model$bootstrap_output = bootstrap_EM(model,
-                                         n_boot,
-                                         num_iter)
+                                          n_boot,
+                                          max_iter_boot,
+                                          bootstrap_samples)
 
   }
 
   if (null_sim) {
     model$null_delta = null_EM_trio(genetic_data,
                                     model,
-                                    num_iter,
+                                    max_iter,
                                     n_null,
                                     grid_size)
   }
@@ -70,8 +77,8 @@ burdenEM_trio <- function(input_data,
                                                 model_boot$delta = model$bootstrap_output$bootstrap_delta[[iter]]
 
                                                 boot_heritability = estimate_heritability_trio(model = model_boot,
-                                                                                                      genetic_data = genetic_data[model$bootstrap_output$bootstrap_samples[,iter],],
-                                                                                                      prevalence = prevalence)
+                                                                                               genetic_data = genetic_data[model$bootstrap_output$bootstrap_samples[,iter],],
+                                                                                               prevalence = prevalence)
 
                                               })
 
@@ -125,12 +132,70 @@ burdenEM_trio <- function(input_data,
 
   }
 
-  #Get some posterior expectations
+  #Get some posterior expectations and hypothesis tests
+  if (estimate_posteriors == TRUE) {
+    #first, get the naive rate ratio estimates
+    RR_naive = genetic_data$case_count / genetic_data$expected_count
 
-  model$posterior_means <- posterior_expectation(model,
-                                                 genetic_data,
-                                                 exp,
-                                                 grid_size)
+    #get some simple poisson p values
+    RR_poisson_p = ppois(genetic_data$case_count,
+                         genetic_data$expected_count,
+                         lower.tail = FALSE)
+
+    #get posterior means
+    RR_posterior_means <- posterior_expectation(model,
+                                                genetic_data,
+                                                exp,
+                                                grid_size)
+
+    #hypothesis test
+    RR_problessthanequal0 <- posterior_expectation(model,
+                                                   genetic_data,
+                                                   function(x) {x <= 0},
+                                                   grid_size)
+
+    posterior_gene_estimate_df <- data.frame(Case_Count = genetic_data$case_count,
+                                             Expected_Count = genetic_data$expected_count,
+                                             Estimate = RR_naive,
+                                             Estimate_Poisson_P = RR_poisson_p,
+                                             Posterior_Mean = RR_posterior_means,
+                                             Posterior_ProbLessEqualZero = RR_problessthanequal0)
+
+    rownames(posterior_gene_estimate_df) <- rownames(genetic_data)
+
+    model$posterior_gene_estimates = posterior_gene_estimate_df
+
+  }
+
+  if (estimate_effective_penetrance) {
+    cat("...computing effective penetrance")
+
+    peneff = effective_penetrance_func(model,
+                                       genetic_data,
+                                       prevalence)
+    peneff_CI = NA
+    if (bootstrap) {
+      cat("...bootstrap effective penetrance")
+      bootstrap_peneff_ests = sapply(1:length(model$bootstrap_output$bootstrap_delta),
+                                     function(iter) {
+                                       model_boot = model
+                                       model_boot$conditional_likelihood = model_boot$conditional_likelihood[model$bootstrap_output$bootstrap_samples[,iter],]
+                                       model_boot$features = model_boot$features[model$bootstrap_output$bootstrap_samples[,iter],]
+                                       model_boot$delta = model$bootstrap_output$bootstrap_delta[[iter]]
+
+                                       genetic_data_boot = genetic_data[model$bootstrap_output$bootstrap_samples[,iter],]
+
+                                       effective_penetrance_func(model_boot,
+                                                                 genetic_data_boot,
+                                                                 prevalence)
+                                     })
+
+      peneff_CI = quantile(bootstrap_peneff_ests,c(0.025,0.975))
+    }
+
+    model$penetrance = list(effective_penetrance = peneff,
+                            effective_penetrance_CI = peneff_CI)
+  }
 
   return(model)
 
