@@ -495,6 +495,82 @@ get_genetic_data <- function(i, data) {
 
 }
 
+binomial_LL_withposterior <- function(c,data,totals,N_1,N_tot,model,genetic_data) {
+  posterior_terms = posterior_expectation(model,genetic_data,function(x) {exp(x * (c-1))},10)
+  probability_factors = (N_1/N_tot) * posterior_terms
+
+
+  LLs = dbinom(data,totals,probability_factors,log = TRUE)
+  return(sum(LLs))
+}
+
+binomial_analysis <- function(model,
+                              genetic_data_total,
+                              genetic_data_subsample,
+                              param_grid = seq(0.6,1.35,length.out  = 30)) {
+
+  counts_total = genetic_data_total$case_count
+  counts_subsample = genetic_data_subsample$case_count
+  N_total = genetic_data_total$N[1]
+  N_subsample = genetic_data_subsample$N[1]
+  print(N_subsample)
+
+  LL_grid_posterior = sapply(param_grid,
+                             binomial_LL_withposterior,
+                             counts_subsample,
+                             counts_total,
+                             N_subsample,
+                             N_total,
+                             model,
+                             genetic_data_total)
+
+  return(list(LL_output = data.frame(val = param_grid,
+                                     LL = LL_grid_posterior),
+              MLE = param_grid[which.max(LL_grid_posterior)]))
+
+
+}
+
+get_scaled_heritability <- function(model,
+                                    genetic_data,
+                                    gamma_scaling_factor,
+                                    prevalence,
+                                    heritability_scaling_factor = 1) {
+  h2_output_mod <- estimate_heritability_trio(model,
+                                              genetic_data,
+                                              prevalence,
+                                              gamma_scaling_factor = gamma_scaling_factor)
+
+
+
+  bootstrap_heritability_output_mod <- lapply(1:100,
+                                              function(iter,model,genetic_data) {
+
+
+
+                                                model_boot = model
+                                                model_boot$conditional_likelihood = model_boot$conditional_likelihood[model$bootstrap_output$bootstrap_samples[,iter],]
+                                                model_boot$features = model_boot$features[model$bootstrap_output$bootstrap_samples[,iter],]
+                                                model_boot$delta = model$bootstrap_output$bootstrap_delta[[iter]]
+
+                                                boot_heritability = estimate_heritability_trio(model = model_boot,
+                                                                                               genetic_data = genetic_data[model$bootstrap_output$bootstrap_samples[,iter],],
+                                                                                               prevalence = prevalence,
+                                                                                               gamma_scaling_factor = gamma_scaling_factor)
+
+                                              },
+                                              model,
+                                              genetic_data)
+
+  bootstrap_h2_ests_mod = sapply(1:length(bootstrap_heritability_output_mod), function(x) bootstrap_heritability_output_mod[[x]]$total_h2)
+  heritability_CI_mod = quantile(bootstrap_h2_ests_mod,c(0.025,0.975))
+
+  return(list(h2 = h2_output_mod$total_h2 * heritability_scaling_factor,
+              bootstrap_h2_ests = bootstrap_h2_ests_mod* heritability_scaling_factor,
+              h2_lower = heritability_CI_mod[1]* heritability_scaling_factor,
+              h2_upper = heritability_CI_mod[2]* heritability_scaling_factor))
+
+}
 
 
 
