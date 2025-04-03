@@ -447,6 +447,54 @@ make_supptable <- function(tables,names_to_keep) {
 
 }
 
+#define function to get count tables
+get_genetic_data <- function(i, data) {
+  counts = data$counts
+  subsets = data$loop_vars$subsets
+  mutation_rate = data$loop_vars$mutation_rate
+  N_subset = data$loop_vars$N_subset
+  names = data$loop_vars$names
+  print(names[i])
+
+  case_count = rep(0, nrow(rowData(counts)))
+
+  for (assay in subsets[[i]]) {
+    if (length(data$loop_vars$datasets) > 0) {
+      if (sum(data$loop_vars$datasets[[i]]) > 1) {
+        assay_count = rowSums(assays(counts)[[assay]][,data$loop_vars$datasets[[i]]])
+      } else {
+        assay_count = assays(counts)[[assay]][,data$loop_vars$datasets[[i]]]
+      }
+    } else {
+      assay_count = rowSums(assays(counts)[[assay]])
+
+    }
+    case_count = case_count + assay_count
+  }
+
+  mu = rowData(counts)[,mutation_rate[i]]
+  #  mutation_rate = rowData(counts)$mut.ptv.gnomad.v2
+
+  posterior_mu_factor = rowData(counts)$PosteriorMuCorrectionFactor
+
+  N = N_subset[i]
+
+  input_df <- data.frame(case_count = case_count,
+                         case_rate = mu * posterior_mu_factor,
+                         N = N)
+  rownames(input_df) = rownames(rowData(counts))
+
+  filter_impossiblecount = !(input_df$case_count > 0 & input_df$case_rate == 0)
+
+
+  genetic_data = process_data_trio(input_df[filter_impossiblecount,],
+                                   data$features[filter_impossiblecount,])
+
+  return(list(genetic_data = genetic_data,
+              features = data$features[filter_impossiblecount,]))
+
+}
+
 
 
 
