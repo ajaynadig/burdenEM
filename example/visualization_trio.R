@@ -1,14 +1,15 @@
 source("~/Mirror/oconnor_rotation/rare_dn_h2/scripts/set_up.R")
 source("~/Mirror/oconnor_rotation/rare_dn_h2/scripts/set_up_kaplanis.R")
 
-path_to_supptables <- "~/Mirror/oconnor_rotation/rare_dn_h2/SupplementaryTables/"
-path_to_figs <- "~/Mirror/oconnor_rotation/rare_dn_h2/manuscript_figures/"
+
 resource_dir <- "~/Mirror/oconnor_rotation/rare_dn_h2/github/resources/"
 output_dir = "~/Mirror/oconnor_rotation/rare_dn_h2/github/outputs/"
+path_to_supptables <- paste0(output_dir, "SuppTables/")
+path_to_figs <-paste0(output_dir, "Figures/")
 
 
-load("/Users/anadig/Mirror/oconnor_rotation/rare_dn_h2/repo/burdenEM/outputs/models_autism_Mar25.Rdata")
-load("/Users/anadig/Mirror/oconnor_rotation/rare_dn_h2/repo/burdenEM/outputs/models_ddd_Mar25.Rdata")
+load(paste0(output_dir, "models_autism_Apr25.Rdata"))
+load(paste0(output_dir,"models_ddd_Apr25.Rdata"))
 
 
 current_date <- format(Sys.Date(), "%b%y")
@@ -64,9 +65,6 @@ Proband_Vmu_plot <- ggplot(data = heritability_enrich_autism$heritability[herita
   ylim(0,0.04)+
   guides(fill = "none")
 
-ggsave(paste0(path_to_figs,"Proband_MutVar_TopLine.pdf"),
-       Proband_Vmu_plot,device = cairo_pdf,width =4.5, height = 3,dpi = "retina")
-
 Sibling_Vmu_plot <- ggplot(data = heritability_enrich_autism$heritability[heritability_enrich_autism$heritability$prev_factor ==  autism_data$prev_factors[1] &
                                                                             grepl("Combined",heritability_enrich_autism$heritability$name) &
                                                                             grepl("Sibling",heritability_enrich_autism$heritability$name),],
@@ -109,23 +107,6 @@ Prevalence_MutVar_plot <- ggplot(data = heritability_enrich_autism$heritability[
 ggsave(paste0(path_to_figs,"SupplementaryFigure3.pdf"),
        Prevalence_MutVar_plot,device = cairo_pdf,width =6, height = 4,dpi = "retina")
 
-#test bootstrap function
-test_model = burdenEM_trio(input_data = get_genetic_data(5,autism_data)$genetic_data,
-                           component_endpoints = seq(0,log(1/0.01),length.out = 10),
-                           features = get_genetic_data(5,autism_data)$features,
-                           n_null = 5,
-                           #num_iter = 5,
-                           prevalence = autism_data$baseprev * autism_data$prev_factors[1],
-                           estimate_posteriors = TRUE)
-boot_h2 = bootstrap_function(test_model,
-                             estimate_heritability_trio,
-                             genetic_data = get_genetic_data(5,autism_data)$genetic_data,
-                             prevalence = autism_data$baseprev * autism_data$prev_factors[1],
-                             gamma_scaling_factor = 1)
-
-boot_total_h2_test = sapply(1:length(boot_h2), function(x) boot_h2[[x]]$total_h2)
-test_CI = quantile(boot_total_h2_test,c(0.025,0.975))
-true_CI = test_model$heritability_output$heritability_CI
 
 
 #Polygenicity
@@ -224,9 +205,6 @@ EnrichmentPlot <- ggplot(enrichment_viz_df[enrichment_viz_df$annot != "LOEUF5",]
 
 
 
-ggsave(paste0(path_to_figs,"EnrichmentPlot.pdf"),
-       EnrichmentPlot,device = cairo_pdf,width =6, height = 3,dpi = "retina")
-
 #Aside: lengths of genes
 GER_genes = read.table(paste0(resource_dir, "GER_IDs.txt"), header = FALSE)
 
@@ -288,12 +266,6 @@ FracCases_plot <- ggplot(data = FracCase_autism,
   annotate("text", x = 5.5, y = 0.095, label = "ACMG\nCriterion",
            size = 5, fontface = "italic", hjust = 0)
 
-ggsave(paste0(path_to_figs,"FracCases_all.pdf"),
-       FracCases_plot,device = cairo_pdf,width =4.5, height = 3.5,dpi = "retina")
-
-
-
-
 #Effective penetrance
 peneff_df <- data.frame(peneff = c(burdenEM_models_autism[[1]][[5]]$penetrance$effective_penetrance,
                                    burdenEM_models_autism[[1]][[11]]$penetrance$effective_penetrance,
@@ -324,10 +296,6 @@ peneff_plot <- ggplot(data = peneff_df,
   theme(axis.text.x = element_text(color = rev(palette_variantclass)[3:5], face = "bold"))+
   ylim(0,1)+
   guides(fill = "none")
-
-ggsave(paste0(path_to_figs,"PenEff.pdf"),
-       peneff_plot,device = cairo_pdf,width =4, height = 3.5,dpi = "retina")
-
 
 #Heritability by dataset
 dataset_h2_results = data.frame()
