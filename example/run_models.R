@@ -1,11 +1,22 @@
-source("example/set_up_asc.R")
-source("example/set_up_kaplanis.R")
+path_to_repo = "~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/"
+#Source files--unneccessary if package is installed
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/burdenEM_trio.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/EM.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/estimate_heritability.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/io.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/likelihoods.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/model.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/secondary_analysis_functions.R")
+#set up data structures
+source(paste0(path_to_repo,"example/set_up_asc.R"))
+source(paste0(path_to_repo,"example/set_up_kaplanis.R"))
+
 
 
 # Get the current date in "MonYY" format (e.g., "Mar25")
 current_date <- format(Sys.Date(), "%b%y")
 
-output_path = "/Users/anadig/Mirror/oconnor_rotation/rare_dn_h2/repo/burdenEM/outputs/"
+output_path = "/Users/anadig/Mirror/oconnor_rotation/rare_dn_h2/github/outputs/"
 
 run_autism = TRUE
 run_ddd = TRUE
