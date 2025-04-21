@@ -32,7 +32,11 @@ class DiagOpt(LinearOperator):
 
 @dataclass
 class XtXOpt(LinearOperator):
-    """Represents the correlation matrix corresponding to the sparse matrix X'X"""
+    """
+    Represents the correlation matrix corresponding to the sparse matrix X'X.
+    
+    For missing variants (indicated by `indices`), acts as the identity.
+    """
     XtX_by_n: sparse.spmatrix     # X'X/num_haplotypes matrix
     allele_frequency: np.ndarray  # Column means of X
     indices: np.ndarray # indices into the vector that correspond to rows/cols of XtX_by_n
@@ -53,6 +57,24 @@ class XtXOpt(LinearOperator):
             
         if self.XtX_by_n.shape != (len(self.allele_frequency), len(self.allele_frequency)):
             raise ValueError(f"Shape of XtX_by_n does not match expected shape")
+        
+        if np.any(self.allele_frequency == 1):
+            raise ValueError("Allele frequency cannot be 1")
+
+        # Operator acts as the identity on missing variants, which is also
+        # the desired behavior for variants with zero allele frequency
+        self._discard_zero_allele_frequency()
+
+    def _discard_zero_allele_frequency(self):
+        af_is_zero = self.allele_frequency == 0
+
+        xtx_is_zero = self.XtX_by_n.diagonal() == 0
+        if np.any(af_is_zero != xtx_is_zero):
+            raise ValueError("Xt1 cannot be 0 if XtX is not, and vice versa")
+
+        self.allele_frequency = self.allele_frequency[~af_is_zero]
+        self.XtX_by_n = self.XtX_by_n[~af_is_zero, :][:, ~af_is_zero]
+        self.indices = self.indices[~af_is_zero]
     
     @property
     def dtype(self):
@@ -68,7 +90,6 @@ class XtXOpt(LinearOperator):
         mu = aslinearoperator(self.allele_frequency.reshape(-1, 1))  # Column vector
         
         std_deviations = np.sqrt(self.XtX_by_n.diagonal() - self.allele_frequency**2)
-        std_deviations[std_deviations==0] = 1
         scaling_matrix = DiagOpt(diag=1.0 / std_deviations)
         
         XtX_by_n = aslinearoperator(self.XtX_by_n)
@@ -83,55 +104,64 @@ class XtXOpt(LinearOperator):
 
 def get_burden_score(matrices: List[sparse.spmatrix], 
                 matrix_snplists: List[pl.dataframe],
-                num_haplotypes: int,
                 annot_snplists: List[pl.dataframe],
                 annot_af_name: str,
-                annot_names: List[str]):
+                annot_names: List[str],
+                merge_fields: List[str]=['CHR', 'POS']):
+    """
+    Computes the LD-corrected burden score from a set of LD matrices and annotation data.
+
+    The LD-corrected burden score is w'Rw, where w_i=2*AF_i*(1-AF_i) and R is the LD correlation matrix.
     
+    Args:
+        matrices: List of sparse matrices X'X/n, where X is the 0-1-2 matrix of genotypes.
+        matrix_snplists: List of Polars DataFrames corresponding to LD matrices.
+        annot_snplists: List of Polars DataFrames containing allele frequencies,
+            merge_fields, and functional categories.
+        annot_af_name: Name of the column in the annotation data containing allele frequencies.
+        annot_names: Names of the column in the annotation data containing functional categories.
+        merge_fields: Names of fields to merge on between LD matrix and annotation data.
+    
+    Returns:
+        List of dictionaries containing LD-corrected burden scores for each annotation.
+    """
     if annot_af_name == 'AF':
         raise ValueError("Please name the annotation allele frequencies something else")
     
-    for i, matrix_snplist in enumerate(matrix_snplists):
-        matrix_snplists[i] = matrix_snplist.with_row_count('matrix_index')
-    
     merged_snplists = [
-        matrix_snplist.join(annot_snplist, on='SNP', how='right')
+        matrix_snplist.with_row_count('matrix_index')\
+                        .join(annot_snplist, on=merge_fields, how='right')\
+                        .group_by(merge_fields).first()\
+                        .with_row_count('merged_index')
         for matrix_snplist, annot_snplist in zip(matrix_snplists, annot_snplists)
     ]
-    for i, snplist in enumerate(merged_snplists):
-        original_length = len(snplist)
-        merged_snplists[i] = snplist.group_by('SNP').first()
-        new_length = len(merged_snplists[i])
-        if new_length < original_length:
-            print(f"Warning: {original_length - new_length} duplicate SNPs were discarded from matrix {i}")
-    
-        merged_snplists[i] = merged_snplists[i].with_row_count('merged_index')
-    
-    # TODO maybe check for discrepencies between allele frequencies
     
     burden_scores = []
     for ld_mat, snplist in zip(matrices, merged_snplists):
+        # Drop variants from the LD matrix that didn't merge with the annotation data
         idx_into_matrix = snplist.filter(pl.col('matrix_index').is_not_null()).select('matrix_index').to_numpy().flatten()
         ld_mat = ld_mat[idx_into_matrix, :][:, idx_into_matrix]
-        print(f"Number of diagonal nonzeros: {np.sum(ld_mat.diagonal()!=0)}, Number of non-zero elements: {ld_mat.nnz}")
         
-        
+        ldmat_af = snplist.filter(pl.col('matrix_index').is_not_null()).select('AF').to_numpy().flatten()
         idx_into_merged = snplist.filter(pl.col('matrix_index').is_not_null()).select('merged_index').to_numpy().flatten()
-        af = snplist.filter(pl.col('matrix_index').is_not_null()).select('AF').to_numpy().flatten()
-        
         n = snplist.shape[0]
-
-        operator = XtXOpt(XtX_by_n=ld_mat / num_haplotypes,
-                          allele_frequency=af,
+        operator = XtXOpt(XtX_by_n=ld_mat,
+                          allele_frequency=ldmat_af,
                           indices=idx_into_merged,
                           shape=(n, n))
         
         result = {}
         af = snplist.select(annot_af_name).to_numpy()
+        af_cor = np.corrcoef(af[idx_into_merged].ravel(), ldmat_af.ravel())[0,1]
+        if af_cor < 0.5:
+            print(f"Number of merged variants: {len(idx_into_merged)}")
+            print(f"Total heterozygosity snplist: {np.sum(2 * ldmat_af * (1-ldmat_af))}")
+            print(f"Total heterozygosity sumstats: {np.sum(2 * af * (1-af))}")
+            print(f"Correlation between frequencies: {af_cor}")
         sqrt_2pq = np.sqrt(2 * af * (1-af)).flatten()
         for annot_name in annot_names:
             burden_weights = sqrt_2pq * snplist.select(annot_name).to_numpy().flatten()
-            result[annot_name] = np.dot(burden_weights.flatten(), (operator @ burden_weights).flatten())
+            result[annot_name] = np.dot(burden_weights, operator @ burden_weights)
         burden_scores.append(result)
 
     return burden_scores

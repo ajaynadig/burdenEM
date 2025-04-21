@@ -79,7 +79,6 @@ def test_get_burden_score():
     
     # Step 1: Convert the matrix into a correlation matrix
     allele_frequencies = snplist['AF'].to_numpy()
-    num_haplotypes = 1  # Example value
     
     # Convert to correlation matrix using the provided function
     matrix_dense = matrix.toarray()
@@ -95,7 +94,7 @@ def test_get_burden_score():
     annot_snplists = [annot_snplist]
     
     # Test the function
-    burden_scores = get_burden_score(matrices, matrix_snplists, num_haplotypes, annot_snplists, 
+    burden_scores = get_burden_score(matrices, matrix_snplists, annot_snplists, 
                                     'annot_AF', ['annot_column'])
     result = burden_scores[0]['annot_column']
     print(f"Function executed successfully wtih result {result}")
