@@ -41,44 +41,53 @@ estimate_heritability_trio <- function(model,
 }
 
 estimate_heritability_rvas <- function(model,
-                                       genetic_data){
-  per_allele_factor <- unique(genetic_data$per_allele_factor)
+                                       genetic_data,
+                                       per_allele_effects = FALSE){
+
+  if(per_allele_effects) {
+    heritability_fn <- function(weights, endpoints, multipliers) {
+      heritability = t(weights %*% (endpoints^2)) %*% multipliers / 3
+    }
+  } else {
+    heritability_fn <- function(weights, endpoints, multipliers) {
+      heritability = sum((weights %*% (endpoints^2))) / 3
+    }
+  }
+  mixing_weights <- model$features %*% model$delta
 
   annot_h2 <- sapply(1:ncol(model$features),
                      function(x) {
-                       mixing_weights = model$delta[x,]
-                       data_x <- genetic_data[model$features[,x]==1,]
-                       no_genes <- nrow(data_x)
-                       heritability = sum(mixing_weights%*% (model$component_endpoints)^2*no_genes/3*per_allele_factor)
+                       rows <- model$features[,x]==1
+                       heritability <- heritability_fn(mixing_weights[rows,], 
+                                                      model$component_endpoints, 
+                                                      as.matrix(genetic_data$burden_score[rows]))
                      })
+  print(annot_h2)
+  ids <- which(model$component_endpoints>0)
+  positive_h2 <- heritability_fn(mixing_weights[,ids], 
+                                  model$component_endpoints[ids], 
+                                  as.matrix(genetic_data$burden_score))
+  print(positive_h2)
+  ids <- which(model$component_endpoints<0)
+  negative_h2 <- heritability_fn(mixing_weights[,ids], 
+                                  model$component_endpoints[ids], 
+                                  as.matrix(genetic_data$burden_score))
+  print(negative_h2)
 
-  positive_h2 <- sapply(1:ncol(model$features),
-                             function(x) {
-                               ids <- which(model$component_endpoints>0)
-                               mixing_weights = model$delta[x,ids]
-                               data_x <- genetic_data[model$features[,x]==1,]
-                               no_genes <- nrow(data_x)
-                               heritability = sum(mixing_weights%*% (model$component_endpoints[ids])^2*no_genes/3*per_allele_factor)
-                             })
-  negative_h2 <- sapply(1:ncol(model$features),
-                        function(x) {
-                          ids <- which(model$component_endpoints<0)
-                          mixing_weights = model$delta[x,ids]
-                          data_x <- genetic_data[model$features[,x]==1,]
-                          no_genes <- nrow(data_x)
-                          heritability = sum(mixing_weights%*% (model$component_endpoints[ids])^2*no_genes/3*per_allele_factor)
-                        })
+  total_h2 = heritability_fn(mixing_weights, 
+                                  model$component_endpoints, 
+                                  as.matrix(genetic_data$burden_score))
+  print(total_h2)
+  stopifnot(all.equal(positive_h2 + negative_h2, total_h2, tolerance=1e-6))
 
 
-
-  total_h2 = sum(annot_h2)
   frac_h2 = annot_h2/total_h2
   prop_positive_h2 = sum(positive_h2)/total_h2
   prop_negative_h2 = sum(negative_h2)/total_h2
   frac_expected = sapply(1:ncol(model$features),
                          function(x) {
-                           sum(genetic_data$CAF[model$features[,x] == 1], na.rm = T)
-                         })/sum(genetic_data$CAF, na.rm = T)
+                           sum(genetic_data$burden_score[model$features[,x] == 1])
+                         })/sum(genetic_data$burden_score)
 
   enrichment = frac_h2/frac_expected
 
