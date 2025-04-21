@@ -2,3 +2,14 @@
 .Rhistory
 .RData
 .Ruserdata
+*.tsv
+*.xml
+*.rds
+*.png
+.idea/*
+uv.lock
+old/*
+.DS_Store
+.python_version
+*.sh
+Python/__pycache__/*
