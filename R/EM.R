@@ -18,7 +18,7 @@ EM_fit <- function(model,
   iter_count = 1
 
 
-  while (ll_change > tol) {
+  while (TRUE){#(ll_change > tol) {
 
     if (iter_count >= max_iter) {break}
 
@@ -45,10 +45,15 @@ EM_fit <- function(model,
 bootstrap_EM <- function(model,
                          n_boot,
                          max_iter,
-                         bootstrap_samples = NULL) {
+                         bootstrap_samples = NULL,
+                         bootstrap_seeds = NULL) {
   if (is.null(bootstrap_samples)) {
-    bootstrap_samples <- sapply(1:n_boot,
+    if (is.null(bootstrap_seeds)) {
+      bootstrap_seeds <- 1:n_boot
+    }
+    bootstrap_samples <- sapply(bootstrap_seeds,
                                 function(dummy) {
+                                  set.seed(dummy)
                                   sample(1:nrow(model$conditional_likelihood),replace = TRUE)
                                 })
     cat("...bootstrap EM")
@@ -120,7 +125,7 @@ null_EM_trio <- function(genetic_data,
 
 null_EM_rvas <- function(genetic_data,
                          model,
-                         num_iter,
+                         max_iter,
                          n_null,
                          grid_size) {
 
@@ -145,10 +150,9 @@ null_EM_rvas <- function(genetic_data,
 
 
                          model_null = EM_fit(model_null,
-                                             num_iter)
+                                             max_iter = max_iter)
 
                          return(model_null$delta)
-
                        })
 
 
