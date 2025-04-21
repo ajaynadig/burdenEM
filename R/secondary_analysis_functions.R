@@ -93,6 +93,26 @@ heritability_enrichment_table <- function(data,output) {
               enrichment = enrich_est_df))
 }
 
+bootstrap_function <- function(model, function_to_bootstrap, ...) {
+  args <- list(...)  # Capture additional arguments as a list
+
+  lapply(seq_along(model$bootstrap_output$bootstrap_delta), function(iter) {
+    model_boot <- model
+    model_boot$conditional_likelihood <- model_boot$conditional_likelihood[model$bootstrap_output$bootstrap_samples[, iter], ]
+    model_boot$features <- model_boot$features[model$bootstrap_output$bootstrap_samples[, iter], ]
+    model_boot$delta <- model$bootstrap_output$bootstrap_delta[[iter]]
+
+    # If genetic_data is provided in ..., subset it
+    if ("genetic_data" %in% names(args)) {
+      genetic_data_boot <- args$genetic_data[model$bootstrap_output$bootstrap_samples[, iter], ]
+      args$genetic_data <- genetic_data_boot  # Replace genetic_data in args with the bootstrapped version
+    }
+
+    # Call the function with the modified arguments
+    do.call(function_to_bootstrap, c(list(model = model_boot), args))
+  })
+}
+
 get_fraccase <- function(model,
                          genetic_data,
                          gamma_scaling_factor,
@@ -125,6 +145,8 @@ get_fraccase_df <- function(data,
                                                    gamma_scaling_factor,
                                                    RR_thresh)
     frac_casesgreater_combined = frac_casesgreater_pergene_PTV*data$ptv_scale_factor + frac_casesgreater_pergene_Mis2
+    
+    
     #bootstrap
     if (boot) {
       PTV_boot <- unlist(bootstrap_function(modelPTV,
@@ -535,7 +557,8 @@ get_scaled_heritability <- function(model,
                                     genetic_data,
                                     gamma_scaling_factor,
                                     prevalence,
-                                    heritability_scaling_factor = 1) {
+                                    heritability_scaling_factor = 1,
+                                    n_boot = 100) {
   h2_output_mod <- estimate_heritability_trio(model,
                                               genetic_data,
                                               prevalence,
