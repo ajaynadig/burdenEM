@@ -165,7 +165,9 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
           # Specify column types to avoid guessing issues, especially for 'gene'
           # Assuming standard columns: gene(chr), AF(dbl), beta(dbl), se(dbl), p_value(dbl), N(dbl), variant_variance(dbl) etc.
           # Adjust 'col_types' based on actual file structure if necessary. Use 'cols(.default = "c")' to read all as char first.
-          data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", .default = "d")) # Guess others as double, gene as char
+          data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
+                                                                                             description = 'c', CHR = 'c' , trait_type = 'c',
+                                                                                             .default = "d")) # Guess others as double, gene as char
           if (nrow(data) > 0) {
              # Ensure required columns exist before adding functional category
              required_raw_cols <- c("gene", "AF", "beta", "variant_variance") # Check essential columns from file
@@ -181,7 +183,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
              # --- Add AF Filtering Here ---
              if (!is.null(frequency_range)) {
                original_count <- nrow(data)
-               data <- data %>% 
+               data <- data %>%
                  filter(AF >= frequency_range[1] & AF < frequency_range[2])
                filtered_count <- nrow(data)
                if (original_count > filtered_count) {
