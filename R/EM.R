@@ -1,7 +1,7 @@
 # Core Expectation-Maximization scripts
 EM_fit <- function(model,
                    max_iter,
-                   tol = 1e-6,
+                   tol = NULL,
                    return_likelihood = TRUE) {
   #Pre-invert X_T %*% X to save time
   OLS_denom = solve(t(model$features) %*% model$features)
