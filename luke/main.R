@@ -5,19 +5,20 @@
 
 # Paths used to set default values in command line arguments
 TOP_LEVEL_DATA_DIR = "~/Dropbox (Partners HealthCare)/burdenEM/burdenEM_results/data"
-OUTPUT_DIR = "~/Dropbox (Partners HealthCare)/burdenEM/burdenEM_results/results_2025/"
+OUTPUT_DIR = "~/Dropbox (Partners HealthCare)/github_repo/burdenEM/burdenEM_example_output"
 
 # --- Libraries ---
-library(dplyr)
-library(readr)
-library(purrr)
-library(stringr)
-library(tidyr)
-library(optparse)
+packages <- c("dplyr", "readr", "purrr", "stringr", "tidyr", "optparse", "Rcpp","RcppArmadillo")
+
+for(p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+  }
+}
 
 # --- Source Required Functions ---
 # Assuming R/* scripts are in the R/ directory relative to the project root
-setwd('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/')
+# setwd('~/Dropbox (Partners HealthCare)/github_repo/burdenEM/')
 source("R/io.R")
 source("luke/intercept.R")
 source("luke/variant_to_gene.R")
@@ -26,6 +27,7 @@ source("R/model.R")
 source("R/likelihoods.R")
 source("R/EM.R") # Source for EM_fit, bootstrap_EM, null_EM_rvas
 source("luke/gene_features.R") # Source for get_bins
+sourceCpp("R/EM.cpp")
 
 #' Run BurdenEM RVAS Workflow
 #'
@@ -62,10 +64,10 @@ run_burdenEM_rvas <- function(
     frequency_range = c(0, 0.001),
     feature_col_name = "lof.oe",
     num_feature_bins = 5,
-    burdenem_no_cpts = 15,
+    burdenem_no_cpts = 30,
     burdenem_grid_size = 100,
-    num_iter = 100000,
-    bootstrap = TRUE,
+    num_iter = 200000,
+    bootstrap = FALSE,
     n_boot = 100,
     output_dir = OUTPUT_DIR,
     verbose = FALSE,
@@ -154,6 +156,7 @@ run_burdenEM_rvas <- function(
 
     # --- 8. Initialize BurdenEM Model ---
     if(customize_components){
+      print('Customizing component endpoints')
       lower_bound = unlist(quantile(gene_level_data$gamma_per_sd, probs = c(0.001)))
       upper_bound = unlist(quantile(gene_level_data$gamma_per_sd, probs = c(0.999)))
       bound = max(abs(min(gene_level_data$gamma_per_sd)), abs(max(gene_level_data$gamma_per_sd)))
@@ -186,8 +189,8 @@ run_burdenEM_rvas <- function(
     )
 
     # --- 9. Fit Model using EM ---
-    if(verbose) message("\n--- Running EM Fit ---")
-    burdenem_model <- EM_fit(model = burdenem_model, max_iter = num_iter, tol = 0)
+    if(verbose) message(paste0("\n--- Running EM Fit (iteration:", num_iter,") ---"))
+    burdenem_model <- EM_fit_cpp(model = burdenem_model, max_iter = num_iter, tol = 0)
     if(verbose) {
         message("EM fit complete. Final delta parameters (first few rows/cols):")
         print(head(burdenem_model$delta))
@@ -229,37 +232,37 @@ if (!interactive()) {
     library(optparse)
 
     option_list = list(
-        make_option(c("-a", "--annotation_to_process"), type="character", default=NULL,
+        make_option(c("-a", "--annotation_to_process"), type="character", default='pLoF',
             help="Single functional annotation category to process (e.g., 'pLoF', 'missense', 'synonymous') [required]", metavar="character"),
-        make_option(c("-f", "--feature_col_name"), type="character", default=NULL,
+        make_option(c("-f", "--feature_col_name"), type="character", default='oe_lof',
             help="Optional: Name of the column in LD-scores file for gene features (e.g., 'oe_lof')", metavar="character"),
         make_option(c("-b", "--num_feature_bins"), type="integer", default=5,
             help="Number of bins for feature column [default %default].", metavar="integer"),
         make_option(c("-v", "--variant_dir"), type="character",
-            default=file.path(TOP_LEVEL_DATA_DIR, "data", "genebass", "var_txt"),
+            default=file.path(TOP_LEVEL_DATA_DIR, "genebass", "var_txt"),
             help="Directory containing variant files [default %default].", metavar="character"),
         make_option(c("-l", "--ld_scores_file"), type="character",
             default=file.path(TOP_LEVEL_DATA_DIR, "data","utility","ukbb_ld_corrected_burden_scores.tsv"),
             help="Path to LD-corrected burden scores file [default %default].", metavar="character"),
         make_option(c("-o", "--output_dir"), type="character", default="./burdenEM_example_output",
             help="Output directory for results [default %default].", metavar="character"),
-        make_option(c("-p", "--phenotype"), type="character", default="50_NA,30780_NA",
+        make_option(c("-p", "--phenotype"), type="character", default="50_NA",
             help="Phenotype code split by comma (default: 50_NA -> height).", metavar="character"),
         make_option(c("-d", "--data_name"), type="character", default="genebass",
             help="Dataset name prefix (e.g., 'genebass') [default %default].", metavar="character"),
-        make_option(c("-c", "--burdenem_no_cpts"), type="integer", default=10,
+        make_option(c("-c", "--burdenem_no_cpts"), type="integer", default=30,
             help="Number of components for BurdenEM [default %default].", metavar="integer"),
-        make_option(c("-i", "--num_iter"), type="integer", default=1000,
+        make_option(c("-i", "--num_iter"), type="integer", default=10000,
             help="Number of EM iterations [default %default].", metavar="integer"),
         make_option(c("--bootstrap_n"), type="integer", default=100,
             help="Number of bootstrap samples [default %default].", metavar="integer"),
-        make_option(c("--no_bootstrap"), action="store_false", default=TRUE, dest="bootstrap",
+        make_option(c("--no_bootstrap"), action="store_false", default=FALSE, dest="no_bootstrap",
             help="Disable bootstrapping."),
         make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
             help="Calculate per-allele effect sizes instead of per-gene. [default: %default]"),
         make_option(c("--customize_components"), action="store_true", default=FALSE, dest="customize_components",
                     help="Customize selection of component endpoints using gene-level data. [default: %default]"),
-        make_option(c("--correct_for_ld"), action="store_true", default=FALSE, dest="correct_for_ld",
+        make_option(c("--correct_for_ld"), action="store_true", default=TRUE, dest="correct_for_ld",
             help="Apply LD correction to burden scores and gamma."),
         make_option(c("--correct_genomewide"), action="store_true", default=FALSE,
                     help="Apply genome-wide burden correction after variant-to-gene processing [default %default]"),
@@ -304,7 +307,7 @@ if (!interactive()) {
         burdenem_no_cpts = opt$burdenem_no_cpts,
         # burdenem_grid_size = 100, # Use default from function
         num_iter = opt$num_iter,
-        bootstrap = opt$bootstrap,
+        bootstrap = opt$no_bootstrap,
         n_boot = opt$bootstrap_n,
         output_dir = opt$output_dir,
         verbose = opt$verbose,
