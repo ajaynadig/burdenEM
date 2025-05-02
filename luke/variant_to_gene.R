@@ -23,21 +23,21 @@ process_variant_to_gene <- function(variant_data, frequency_bin_edges) {
     stop("'frequency_bin_edges' must be a numeric vector with at least two values.")
   }
 
-  # --- 1. Calculate beta_per_sd --- 
+  # --- 1. Calculate beta_per_sd ---
   message("Calculating 'beta_per_sd'...")
   variant_data <- variant_data %>%
       mutate(beta_per_sd = beta * sqrt(variant_variance))
 
-  # --- 2. Calculate Variant Intercepts --- 
+  # --- 2. Calculate Variant Intercepts ---
   intercept_summary <- calculate_variant_intercept(variant_data, frequency_bin_edges)
 
-  # --- Add Frequency Bins to variant_data (needed for join) --- 
+  # --- Add Frequency Bins to variant_data (needed for join) ---
   # Include lowest value, make right side open except for the last bin
   freq_labels <- paste0("[", head(frequency_bin_edges, -1), ",", tail(frequency_bin_edges, -1), ")")
   # Ensure the last label is closed: [bin_n-1, bin_n]
   freq_labels[length(freq_labels)] <- gsub("\\)$", "\\]", freq_labels[length(freq_labels)])
 
-  variant_data <- variant_data %>% 
+  variant_data <- variant_data %>%
     dplyr::mutate(
       frequency_bin = cut(AF, breaks = frequency_bin_edges, labels = freq_labels, right = FALSE, include.lowest = TRUE)
     ) %>% 
@@ -46,33 +46,33 @@ process_variant_to_gene <- function(variant_data, frequency_bin_edges) {
       dplyr::left_join(intercept_summary %>% select(functional_category, frequency_bin, intercept), 
                        by = c("functional_category", "frequency_bin"))
 
-  # --- 3. Group by Gene and Summarize --- 
+  # --- 3. Group by Gene and Summarize ---
   message("Aggregating results per gene...")
   gene_level_summary <- variant_data %>%
-    group_by(gene, functional_category) %>% 
-    summarize(
+    dplyr::group_by(gene, functional_category) %>%
+    dplyr::summarize(
       gamma_per_sd = sum(beta_per_sd * sqrt(variant_variance)),
-      burden_score = sum(variant_variance), 
+      burden_score = sum(variant_variance),
       gene_intercept = sum(intercept * variant_variance),
       n_variants = n(),
       .groups = 'drop'
     ) %>%
-    mutate(
+    dplyr::mutate(
       gamma_per_sd = if_else(burden_score > 0, gamma_per_sd / sqrt(burden_score), 0),
       gene_intercept = if_else(burden_score > 0, gene_intercept / burden_score, 0)
     )
 
   # Select final columns and ungroup
-  gene_level_summary <- gene_level_summary %>% 
-    select(
+  gene_level_summary <- gene_level_summary %>%
+    dplyr::select(
       gene,
       functional_category,
       gamma_per_sd,
       gene_intercept,
       burden_score,
       n_variants
-    ) %>% 
-    ungroup()
+    ) %>%
+    dplyr::ungroup()
 
 
   message("Finished processing variant data to gene level.")

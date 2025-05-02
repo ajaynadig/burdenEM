@@ -1,7 +1,16 @@
+packages <- c("Rcpp","RcppArmadillo")
+
+for(p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+  }
+}
+sourceCpp("R/EM.cpp")
+
 # Core Expectation-Maximization scripts
 EM_fit <- function(model,
                    max_iter,
-                   tol = 1e-6,
+                   tol = NULL,
                    return_likelihood = TRUE) {
   #Pre-invert X_T %*% X to save time
   OLS_denom = solve(t(model$features) %*% model$features)
@@ -67,12 +76,10 @@ bootstrap_EM <- function(model,
                             function(iter) {
 
                               model_boot = model
-                              model_boot$conditional_likelihood = model_boot$conditional_likelihood[bootstrap_samples[,iter],]
-                              model_boot$features = model_boot$features[bootstrap_samples[,iter],]
+                              model_boot$conditional_likelihood = model_boot$conditional_likelihood[bootstrap_samples[,iter], , drop = FALSE]
+                              model_boot$features = model_boot$features[bootstrap_samples[,iter], , drop = FALSE]
 
-
-                              boot_output <- EM_fit(model_boot,
-                                                    max_iter)
+                              boot_output <- EM_fit_cpp(model = model_boot, max_iter = max_iter, tol = 0)
 
                               if (iter %% 20 == 0) {
                                 cat(paste0("...",iter,"...("))
