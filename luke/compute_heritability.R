@@ -8,23 +8,26 @@ library(stringr)
 library(tibble)
 
 source("R/estimate_heritability.R")
+result_root <- '~/Dropbox (Partners HealthCare)/burdenEM/burdenEM_results/results_2025/'
 
 # --- Get Annotation from Command Line ---
 args <- commandArgs(trailingOnly = TRUE)
-annotation <- args[1]
+annotation <- ifelse(length(args) > 1, args[1], "pLoF")
 phenotype <- ifelse(length(args) > 1, args[2], "50_NA")
 per_allele_effects <- ifelse(length(args) > 2, args[3], FALSE)
 message(paste("Calculating heritability for", annotation, "annotation and", phenotype, "phenotype..."))
 
 gene_file <- paste0("burdenEM_example_output/gene_level_data_genebass_",phenotype,"_", annotation, ".rds")
+print(gene_file)
 gene_data <- readRDS(gene_file)
 
 model_file <- paste0("burdenEM_example_output/burdenEM_fit_genebass_",phenotype,"_", annotation, ".rds")
+print(model_file)
 model <- readRDS(model_file)
 
 h2_output <- estimate_heritability_rvas(
-  model = model, 
-  genetic_data = gene_data, 
+  model = model,
+  genetic_data = gene_data,
   per_allele_effects = per_allele_effects
   )
 message("burdenEM total heritability estimate: ", round(h2_output$total_h2, 6))
