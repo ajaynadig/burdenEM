@@ -41,10 +41,8 @@ process_variant_to_gene <- function(variant_data, frequency_bin_edges) {
     dplyr::mutate(
       frequency_bin = cut(AF, breaks = frequency_bin_edges, labels = freq_labels, right = FALSE, include.lowest = TRUE)
     ) %>% 
-    dplyr::filter(!is.na(frequency_bin)) # Remove variants that fall outside defined bins
-
-  # Join intercepts back to variant data
-  variant_data <- variant_data %>%
+    dplyr::filter(!is.na(frequency_bin)
+    ) %>%
       dplyr::left_join(intercept_summary %>% select(functional_category, frequency_bin, intercept), 
                        by = c("functional_category", "frequency_bin"))
 
@@ -79,4 +77,90 @@ process_variant_to_gene <- function(variant_data, frequency_bin_edges) {
 
   message("Finished processing variant data to gene level.")
   return(gene_level_summary)
+}
+
+#' Process variant-level data (including pre-calculated likelihoods) to gene-level aggregates.
+#'
+#' This function aggregates variant-level statistics and pre-calculated log-likelihoods
+#' to the gene x functional category level. It assumes the input data frame
+#' contains columns for 'gene', 'functional_category', 'variant_variance',
+#' and additional columns representing the log-likelihood for each grid point.
+#'
+#' @param variant_data_with_ll A data frame containing variant information and
+#'   log-likelihoods. Must include columns 'gene', 'functional_category',
+#'   'variant_variance', and columns for log-likelihoods (e.g., "LL_1", "LL_2", ...).
+#'
+#' @return A list containing two elements:
+#'   \describe{
+#'     \item{gene_level_stats}{A data frame summarized at the gene x category
+#'       level with columns: 'gene', 'functional_category', 'burden_score'
+#'       (sum of variant variances), 'n_variants'.}
+#'     \item{gene_level_likelihoods}{A matrix containing the summed log-likelihoods
+#'       for each gene x category combination. Rows are named 'gene:functional_category',
+#'       columns correspond to the input likelihood columns.}
+#'   }
+#' @importFrom dplyr group_by summarize n ungroup select any_of across all_of ends_with contains relocate
+#' @importFrom tidyr unite pivot_longer pivot_wider
+#' @export
+process_variant_to_gene_binary <- function(variant_data_with_ll) {
+
+    # --- Input Checks ---
+    # Identify expected non-likelihood columns needed for stats summary
+    stat_cols <- c("gene", "functional_category", "variant_variance") # Add others if needed
+
+    # Identify likelihood columns specifically by prefix
+    likelihood_col_names <- names(variant_data_with_ll)[startsWith(names(variant_data_with_ll), "LL_")]
+
+    # Check that required stat columns are present
+    missing_cols <- setdiff(stat_cols, names(variant_data_with_ll))
+    if (length(missing_cols) > 0) {
+        stop(paste("Missing required columns in variant_data_with_ll:", paste(missing_cols, collapse=", ")))
+    }
+    if (length(likelihood_col_names) == 0) {
+        stop("No columns identified as likelihood columns in variant_data_with_ll.")
+    }
+    # Check if likelihood columns are numeric
+     likelihood_cols_are_numeric <- all(sapply(variant_data_with_ll[, likelihood_col_names, drop = FALSE], is.numeric))
+     if(!likelihood_cols_are_numeric){
+        stop("Identified likelihood columns must be numeric.")
+     }
+
+
+    # --- Aggregate to Gene x Category Level ---
+    gene_summary <- variant_data_with_ll %>%
+        dplyr::group_by(gene, functional_category) %>%
+        dplyr::summarize(
+            # Sum variant variances to get a simple burden score for stats output
+            burden_score = sum(variant_variance, na.rm = TRUE),
+            # Count number of variants per gene/category
+            n_variants = dplyr::n(),
+            # Sum the log-likelihoods across all variants in the group for each grid point (column)
+            dplyr::across(dplyr::all_of(likelihood_col_names), ~ sum(.x, na.rm = TRUE)),
+            .groups = 'drop'
+        )
+
+    # --- Separate Stats and Likelihoods ---
+    # Gene-level statistics
+    gene_level_stats <- gene_summary %>%
+        dplyr::select(gene, functional_category, burden_score, n_variants) # Add more stats cols if summarized above
+
+    # Gene-level likelihoods matrix
+    # Create unique row names (gene:category)
+    gene_summary <- gene_summary %>%
+        tidyr::unite("gene_category", gene, functional_category, sep = ":", remove = FALSE)
+
+    # Extract likelihood columns into a matrix
+    # Ensure columns are ordered correctly if they came in like LL_1, LL_10, LL_2
+    # If names are like "LL_neg2.0", "LL_neg1.8", etc. sorting works. If "LL_1", "LL_2", "LL_10", need numeric sort.
+    # Assuming column names allow correct alphabetic sorting or are already ordered.
+    gene_level_likelihoods <- gene_summary %>%
+        dplyr::select(gene_category, dplyr::all_of(likelihood_col_names)) %>%
+        tibble::column_to_rownames("gene_category") %>%
+        as.matrix()
+
+    # --- Return Results ---
+    return(list(
+        gene_level_stats = gene_level_stats,
+        gene_level_likelihoods = gene_level_likelihoods
+    ))
 }

@@ -91,18 +91,17 @@ process_data_rvas <- function(input_data,
 #'
 #' @param variant_dir Directory containing the variant files.
 #' @param data_name The dataset name prefix used in filenames (e.g., 'genebass').
-#' @param pheno The phenotype name used in filenames (e.g., '50_NA').
-#' @param annotations_to_process Character vector of functional categories to load (e.g., c("pLoF", "missense|LC")).
-#' @param frequency_range Optional numeric vector of length 2 defining the AF range [min_af, max_af) to keep. Default: NULL (no filtering).
-#' @return A single dataframe containing combined data from all relevant variant files,
-#'         with an added 'functional_category' column. Returns an empty dataframe
-#'         (with correct columns) if no relevant files are found or loaded successfully.
-#' @importFrom dplyr %>% bind_rows mutate case_when filter
+#' @param pheno The phenotype name.
+#' @param annotations_to_process A character vector of functional annotations to include (e.g., c("pLoF", "missense|LC")).
+#' @param frequency_range Optional numeric vector of length 2 specifying the min (inclusive) and max (exclusive) allele frequency (AF) range to keep. Default is NULL (no filtering).
+#' @param prevalence Optional numeric value specifying the prevalence of the trait. Default is NULL.
+#' @return A dataframe containing aggregated variant data across files, filtered by AF if specified, with columns appropriate for the detected trait type.
+#' @importFrom dplyr bind_rows filter mutate select case_when any_of
 #' @importFrom readr read_tsv cols
 #' @importFrom stringr str_match
 #' @importFrom purrr map
 #' @export
-load_variant_files_with_category <- function(variant_dir, data_name, pheno, annotations_to_process, frequency_range = NULL) {
+load_variant_files_with_category <- function(variant_dir, data_name, pheno, annotations_to_process, frequency_range = NULL, prevalence = NULL) {
 
   message(paste("Looking for variant files in:", variant_dir))
   # Construct the regex pattern to match specific annotations
@@ -119,19 +118,13 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
 
   if (length(variant_files) == 0) {
     warning(paste("No variant files found matching pattern:", file_pattern, "in directory:", variant_dir))
-    # Return empty dataframe with expected columns
-    return(data.frame(gene=character(), AF=numeric(), beta=numeric(), variant_variance=numeric(), functional_category=character())) # Add other essential cols if needed
+    # Return empty dataframe with expected columns (defaulting to continuous structure)
+    return(data.frame(gene=character(), AF=numeric(), beta=numeric(), variant_variance=numeric(), functional_category=character()))
   } else {
     message(paste("Found", length(variant_files), "potential variant files to process."))
   }
 
-  # Validate frequency_range if provided
-  if (!is.null(frequency_range)) {
-    if (!is.numeric(frequency_range) || length(frequency_range) != 2 || frequency_range[1] >= frequency_range[2]) {
-      stop("'frequency_range' must be a numeric vector of length 2 with min_af < max_af.")
-    }
-    message(paste0("Applying AF filter: keeping variants with AF in range [", frequency_range[1], ", ", frequency_range[2], ")."))
-  }
+  detected_trait_type <- NULL # Initialize trait type detection
 
   variant_data_list <- purrr::map(variant_files, ~{
       file_path <- .x
@@ -151,7 +144,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
           TRUE ~ NA_character_ # Default for non-matching/other categories
       )
 
-      if (is.na(functional_category_label)) {
+      if (is.null(functional_category_label)) {
           message(paste("  -> Skipping file (annotation pattern not recognized):", annotation_part))
           return(NULL)
       }
@@ -162,33 +155,69 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
       }
 
       tryCatch({
-          # Specify column types to avoid guessing issues, especially for 'gene'
-          # Assuming standard columns: gene(chr), AF(dbl), beta(dbl), se(dbl), p_value(dbl), N(dbl), variant_variance(dbl) etc.
-          # Adjust 'col_types' based on actual file structure if necessary. Use 'cols(.default = "c")' to read all as char first.
-          data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", .default = "d")) # Guess others as double, gene as char
+          # Read file, explicitly trying to read trait_type as character
+          data <- readr::read_tsv(file_path, show_col_types = FALSE,
+                                 col_types = readr::cols(gene = "c", N="d", AC_cases="d", prevalence="d", trait_type = "c", .default = "d"))
+
           if (nrow(data) > 0) {
-             # Ensure required columns exist before adding functional category
-             required_raw_cols <- c("gene", "AF", "beta", "variant_variance") # Check essential columns from file
-             if (!all(required_raw_cols %in% names(data))) {
-                 missing_raw_cols <- setdiff(required_raw_cols, names(data))
-                 message(paste("  -> Skipping file (missing required columns:", paste(missing_raw_cols, collapse=", "), ")"))
+
+             # --- Detect trait_type from first valid file --- #
+             if (is.null(detected_trait_type)) {
+               if (!"trait_type" %in% names(data)) {
+                 message(paste("  -> Skipping file (missing 'trait_type' column):", basename(file_path)))
+                 return(NULL)
+               }
+               first_trait_val <- tolower(data$trait_type[1])
+               if (first_trait_val %in% c('continuous', 'categorical')) {
+                 detected_trait_type <<- first_trait_val # Use <<- to modify outer scope variable
+                 message(paste("  -> Detected trait_type as:", detected_trait_type))
+               } else {
+                 stop(paste("  -> Skipping file (invalid 'trait_type' value found: ", data$trait_type[1] ,"):", basename(file_path)))
+               }
+             }
+             # --------------------------------------------- #
+
+             # Define required columns based on detected trait_type
+             base_required_cols <- c("gene", "AF", "beta", "variant_variance")
+             categorical_required_cols <- c("N", "AC_cases", "prevalence")
+             required_cols <- if (detected_trait_type == 'categorical') c(base_required_cols, categorical_required_cols) else base_required_cols
+
+             if (!all(required_cols %in% names(data))) {
+                 missing_cols <- setdiff(required_cols, names(data))
+                 message(paste("  -> Skipping file (missing required columns for", detected_trait_type, "trait:", paste(missing_cols, collapse=", "), ")"))
                  return(NULL)
              }
+
              data <- data %>% dplyr::mutate(functional_category = functional_category_label)
              message(paste("  -> Read", nrow(data), "variants, assigned category:", functional_category_label))
-             # Select only necessary columns + functional category early? Might improve memory usage.
-             # df <- df %>% select(any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Adapt selection
-             # --- Add AF Filtering Here ---
+
+             # Recalculate AF to ensure consistency with AC_cases > 0
+             data <- data %>% dplyr::mutate(AF = pmax(AF, AC_cases / (2*N), na.rm = TRUE))
+
+             # Coerce AC_cases to integer
+             data$AC_cases <- as.integer(data$AC_cases)
+
+             # --- Add AF Filtering --- #
              if (!is.null(frequency_range)) {
                original_count <- nrow(data)
-               data <- data %>% 
-                 filter(AF >= frequency_range[1] & AF < frequency_range[2])
+               data <- data %>% dplyr::filter(AF >= frequency_range[1] & AF < frequency_range[2])
                filtered_count <- nrow(data)
                if (original_count > filtered_count) {
                    message(paste0("   Filtered out ", original_count - filtered_count, " variants based on AF range. ", filtered_count, " remaining."))
                }
              }
-             # --------------------------
+             # -------------------------- #
+
+             # --- Process based on detected trait_type --- #
+             if (detected_trait_type == 'categorical') {
+                data <- data %>%
+                    dplyr::mutate(expected_count = 2* N * prevalence * AF) %>%
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N_cases", "functional_category"))) 
+             } else { # Continuous
+                data <- data %>%
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Select final columns
+             }
+             # -------------------------------- #
              data
           } else {
              message("  -> File is empty.")
@@ -202,20 +231,12 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
 
   variant_data_list <- variant_data_list[!sapply(variant_data_list, is.null)]
   if (length(variant_data_list) == 0) {
-    warning("Failed to read any relevant variant files or all were empty/skipped/missing columns.")
-     return(data.frame(gene=character(), AF=numeric(), beta=numeric(), variant_variance=numeric(), functional_category=character())) # Match empty return structure
+    stop("Failed to read any relevant variant files or all were empty/skipped/missing columns.")
   }
 
   # Combine valid dataframes
   combined_data <- dplyr::bind_rows(variant_data_list)
   message(paste("Loaded and combined data from", length(variant_data_list), "relevant files.", nrow(combined_data), "total variants."))
-
-  # Final check for essential columns in the combined dataframe
-  final_required_cols <- c("gene", "AF", "beta", "variant_variance", "functional_category")
-  if(!all(final_required_cols %in% names(combined_data))){
-       missing_final_cols <- setdiff(final_required_cols, names(combined_data))
-       stop(paste("Combined data is missing essential columns:", paste(missing_final_cols, collapse=", "))) # Stop if critical columns missing after bind
-  }
 
   return(combined_data)
 }
