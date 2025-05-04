@@ -1,5 +1,5 @@
-source("~/Mirror/oconnor_rotation/rare_dn_h2/scripts/set_up.R")
-source("~/Mirror/oconnor_rotation/rare_dn_h2/scripts/set_up_kaplanis.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/example/set_up_asc.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/example/set_up_kaplanis.R")
 
 
 resource_dir <- "~/Mirror/oconnor_rotation/rare_dn_h2/github/resources/"
@@ -8,8 +8,8 @@ path_to_supptables <- paste0(output_dir, "SuppTables/")
 path_to_figs <-paste0(output_dir, "Figures/")
 
 
-load(paste0(output_dir, "models_autism_Apr25.Rdata"))
-load(paste0(output_dir,"models_ddd_Apr25.Rdata"))
+load(paste0(output_dir, "models_autism_Apr27_25.Rdata"))
+load(paste0(output_dir,"models_ddd_Apr28_25.Rdata"))
 
 
 current_date <- format(Sys.Date(), "%b%y")

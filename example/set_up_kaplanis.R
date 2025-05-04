@@ -99,17 +99,19 @@ resolve_duplicate_names_prior_to_collecting_by_gene_id <- function(input_table) 
 
 #DDD experiment
 
-kaplanis_data <- read.table("kaplanis_files/kaplanis_variants_annotated_2024-05-15.txt", header = TRUE)
-sex_info <- read.table("kaplanis_files/fordist_joint_dnm_ID_sex_2019_08_30.txt", header = TRUE)
+print("Data File: kaplanis_variants_GRCh38_annotated_formatted_2024-11-23.txt")
+
+kaplanis_data <- read.table("count_data_update_April2025/kaplanis_variants_GRCh38_annotated_formatted_2024-11-23.txt", header = TRUE)
+sex_info <- read.table("count_data_update_April2025/fordist_joint_dnm_ID_sex_2019_08_30.txt", header = TRUE)
 
 #get the PTV nonindel : PTV ratio
 
 num_ptv_nonindel = sum((kaplanis_data$isPTV & !kaplanis_data$isIndel)[!is.na(kaplanis_data$isPTV & !kaplanis_data$isIndel)])
-num_ptv = sum(kaplanis_data$isPTV[!is.na(kaplanis_data$isPTV & !kaplanis_data$isIndel)])
+num_ptv = sum(kaplanis_data$isPTV[!is.na(kaplanis_data$isPTV)])
 
 kaplanis_ptv_scale_factor = num_ptv/num_ptv_nonindel
 
-mutation_rate_table = read.table("new_count_data/ASD_gene_table_w_bespoke_mutation_rates_2024-07-24.txt",
+mutation_rate_table = read.table("count_data_update_April2025/ASD_gene_table_w_bespoke_mutation_rates_2024-07-24.txt",
                                  header = TRUE,
                                  sep = "\t")
 kaplanis_data_fixedID <- resolve_duplicate_names_prior_to_collecting_by_gene_id(kaplanis_data)
@@ -231,7 +233,7 @@ for (subsetnum in 1:length(count_subset_names)) {
     subset_count_matrix[,num_count] = tally_function_kaplanis(kaplanis_data_fixedID_study,
                                                               rownames(subset_count_matrix),
                                                               subset_variant_class[subsetnum],
-                                                              subset_Sex[subsetnum])
+                                                              ifelse(subset_Sex[subsetnum] == "M","Male","Female"))
   }
 
   assays(kaplanis_counts)[[count_subset_names[subsetnum]]] = subset_count_matrix

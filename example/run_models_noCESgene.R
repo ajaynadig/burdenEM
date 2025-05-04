@@ -18,12 +18,17 @@ current_date <- format(Sys.Date(), "%b%d_%y")
 
 output_path = "/Users/anadig/Mirror/oconnor_rotation/rare_dn_h2/github/outputs/"
 
-run_autism = FALSE
+run_autism = TRUE
 run_ddd = TRUE
 
+CES_gene_table = read.csv("~/Mirror/oconnor_rotation/rare_dn_h2/data/Sepliyarskiy_SuppTable6.csv")
+CES_set2_genes = CES_gene_table$GeneID[CES_gene_table$Category == "set 2"]
+CES_set2_ensembl <- gnomad_information_v2$gene_id[match(CES_set2_genes,gnomad_information_v2$gene)]
+CES_set2_ensembl[CES_set2_genes == "NARS1"] <- "ENSG00000134440"
 #Make the bootstrap resamples to keep consistent across models
 if (run_autism) {
-  autism_ngene = nrow(autism_data$counts)
+  noCES = !(rownames(autism_data$counts) %in% CES_set2_ensembl)
+  autism_ngene = nrow(autism_data$counts[noCES,])
 
   bootstrap_samples_autism <- sapply(1:100,
                                      function(dummy) {
@@ -43,9 +48,11 @@ if (run_autism) {
                                               features = processed_input$features
                                               print(colSums(features))
 
-                                              model <- burdenEM_trio(input_data = input_df,
+                                              print("Removed CES genes")
+                                              print(sum(!noCES))
+                                              model <- burdenEM_trio(input_data = input_df[noCES,],
                                                                      component_endpoints = seq(0,log(1/0.01),length.out = 10),
-                                                                     features = features,
+                                                                     features = features[noCES,],
                                                                      null_sim = FALSE,
                                                                      #max_iter = 5,
                                                                      prevalence = autism_data$loop_vars$prevalences[i] * prev_factor,
@@ -61,13 +68,15 @@ if (run_autism) {
                                    })
 
   save(burdenEM_models_autism,
-       file = paste0(output_path,"models_autism_", current_date, ".Rdata"))
+       file = paste0(output_path,"noCESset2_models_autism_", current_date, ".Rdata"))
 }
 
 
 
 if (run_ddd){
-  ddd_ngene = nrow(kaplanis_data$counts)
+  noCES = !(rownames(kaplanis_data$counts) %in% CES_set2_ensembl)
+
+  ddd_ngene = nrow(kaplanis_data$counts[noCES,])
 
   bootstrap_samples_ddd <- sapply(1:100,
                                   function(dummy) {
@@ -86,9 +95,11 @@ if (run_ddd){
                                           input_df = processed_input$genetic_data
                                           features = processed_input$features
                                           print(colSums(features))
-                                          model <- burdenEM_trio(input_data = input_df,
+                                          print("Removed CES genes")
+                                          print(sum(!noCES))
+                                          model <- burdenEM_trio(input_data = input_df[noCES,],
                                                                  component_endpoints = seq(0,log(1/0.01),length.out = 10),
-                                                                 features = features,
+                                                                 features = features[noCES,],
                                                                  null_sim = FALSE,
                                                                  #num_iter = 5,
                                                                  prevalence = kaplanis_data$loop_vars$prevalences[i] * prev_factor,
@@ -103,7 +114,7 @@ if (run_ddd){
                                         })
                                })
   save(burdenEM_models_DDD,
-       file = paste0(output_path,"models_ddd_", current_date, ".Rdata"))
+       file = paste0(output_path,"noCESset2_models_ddd_", current_date, ".Rdata"))
 
 
 }

@@ -142,30 +142,30 @@ resolve_duplicate_names_prior_to_collecting_by_gene_id <- function(input_table) 
 gnomad_information <- read.table("gnomad.v4.1.constraint_metrics.tsv", header = TRUE)
 gnomad_information_v2 <- data.frame(fread("gnomad.v2.1.1.lof_metrics.by_gene.txt"))
 
-setwd(paste0(resource_dir,"/new_count_data/"))
-ped_files = c("SPARK_iWES_v2_de_novo_fam_v1.1c_new_samples_only_2024-07-02.txt",
-              "ASC_B17_B21_de_novos_v2.1_ped_2024-07-02.txt",
-              "GeneDx_ASC_de_novos_GRCh38_v2.3_ped_HPO_terms_removed_2024-07-02.txt",
-              "ASC_v17_published_fam_for_de_novo_calls_2024-07-02.txt",
-              "ASC_B15_B16_published_fam_for_de_novo_calls_2024-07-02.txt",
-              "SPARK_Pilot_GATK_published_fam_for_de_novo_calls_2024-07-02.txt",
-              "SPARK_WES1_GATK_published_fam_for_de_novo_calls_2024-07-02.txt")
+setwd(paste0(resource_dir,"/count_data_update_April2025/"))
+ped_files = c("SPARK_iWES_v2_de_novo_fam_v1.1c_new_samples_only_2025-03-29.txt",
+              "ASC_B17_B21_de_novos_v2.2_ped_2025-03-29.txt",
+              "GeneDx_ASC_de_novos_GRCh38_v3.0_ped_HPO_terms_removed_2025-03-27.txt",
+              "ASC_v17_published_fam_for_de_novo_calls_2025-03-29.txt",
+              "ASC_B15_B16_published_fam_for_de_novo_calls_2025-03-29.txt",
+              "SPARK_Pilot_GATK_published_fam_for_de_novo_calls_2025-03-29.txt",
+              "SPARK_WES1_GATK_published_fam_for_de_novo_calls_2025-03-29.txt")
 
-count_files = c("SPARK_iWES_v2_de_novo_counts_by_gene_new_samples_only_new_mis_cats_2024-07-14.txt",
-                "ASC_B17_B21_de_novo_counts_by_gene_new_mis_cats_2024-07-14.txt",
-                "GeneDx_ASC_de_novo_counts_by_gene_GRCh38_new_mis_cats_2024-07-14.txt",
-                "ASC_v17_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2024-07-14.txt",
-                "ASC_B15_B16_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2024-07-14.txt",
-                "SPARK_Pilot_GATK_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2024-07-14.txt",
-                "SPARK_WES1_GATK_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2024-07-14.txt")
+count_files = c("SPARK_iWES_v2_de_novo_counts_by_gene_new_samples_only_new_mis_cats_2025-03-29.txt",
+                "ASC_B17_B21_de_novo_counts_by_gene_new_mis_cats_2025-03-29.txt",
+                "GeneDx_ASC_de_novo_counts_by_gene_GRCh38_new_mis_cats_2025-03-27.txt",
+                "ASC_v17_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2025-03-29.txt",
+                "ASC_B15_B16_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2025-03-29.txt",
+                "SPARK_Pilot_GATK_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2025-03-29.txt",
+                "SPARK_WES1_GATK_published_autosomal_and_updated_XY_de_novo_counts_by_gene_new_mis_cats_2025-03-29.txt")
 
-variant_files = c("SPARK_iWES_v2_de_novo_calls_v1.1c_new_samples_only_2024-07-02.txt",
-                  "ASC_B17_B21_de_novos_v2.1_calls_2024-07-02.txt",
-                  "GeneDx_ASC_de_novos_GRCh38_v2.3_calls_2024-07-02.txt",
-                  "ASC_v17_published_autosomal_and_updated_XY_de_novo_calls_2024-07-02.txt",
-                  "ASC_B15_B16_published_autosomal_and_updated_XY_de_novo_calls_2024-07-02.txt",
-                  "SPARK_Pilot_GATK_published_autosomal_and_updated_XY_de_novo_calls_2024-07-02.txt",
-                  "SPARK_WES1_GATK_published_autosomal_and_updated_XY_de_novo_calls_2024-07-02.txt")
+variant_files = c("SPARK_iWES_v2_de_novo_calls_v1.1c_new_samples_only_2025-03-29.txt",
+                  "ASC_B17_B21_de_novos_v2.2_calls_2025-03-29.txt",
+                  "GeneDx_ASC_de_novos_GRCh38_v3.0_calls_2025-03-27.txt",
+                  "ASC_v17_published_autosomal_and_updated_XY_de_novo_calls_2025-03-29.txt",
+                  "ASC_B15_B16_published_autosomal_and_updated_XY_de_novo_calls_2025-03-29.txt",
+                  "SPARK_Pilot_GATK_published_autosomal_and_updated_XY_de_novo_calls_2025-03-29.txt",
+                  "SPARK_WES1_GATK_published_autosomal_and_updated_XY_de_novo_calls_2025-03-29.txt")
 
 #get the PTV-PTV_NonIndel ratios
 num_ptv_nonindels <- sapply(variant_files,
@@ -383,7 +383,7 @@ for (subsetnum in 1:length(count_subset_names)) {
 }
 
 #Let's do a sanity check with the spark iWES2
-sparkiWES2_counts = read.table("SPARK_iWES_v2_de_novo_counts_by_gene_new_samples_only_new_mis_cats_2024-07-14.txt",
+sparkiWES2_counts = read.table("SPARK_iWES_v2_de_novo_counts_by_gene_new_samples_only_new_mis_cats_2025-03-29.txt",
                                header = TRUE,
                                sep = "\t")
 
