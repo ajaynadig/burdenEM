@@ -94,14 +94,13 @@ process_data_rvas <- function(input_data,
 #' @param pheno The phenotype name.
 #' @param annotations_to_process A character vector of functional annotations to include (e.g., c("pLoF", "missense|LC")).
 #' @param frequency_range Optional numeric vector of length 2 specifying the min (inclusive) and max (exclusive) allele frequency (AF) range to keep. Default is NULL (no filtering).
-#' @param prevalence Optional numeric value specifying the prevalence of the trait. Default is NULL.
 #' @return A dataframe containing aggregated variant data across files, filtered by AF if specified, with columns appropriate for the detected trait type.
 #' @importFrom dplyr bind_rows filter mutate select case_when any_of
 #' @importFrom readr read_tsv cols
 #' @importFrom stringr str_match
 #' @importFrom purrr map
 #' @export
-load_variant_files_with_category <- function(variant_dir, data_name, pheno, annotations_to_process, frequency_range = NULL, prevalence = NULL) {
+load_variant_files_with_category <- function(variant_dir, data_name, pheno, annotations_to_process, frequency_range = NULL) {
 
   message(paste("Looking for variant files in:", variant_dir))
   # Construct the regex pattern to match specific annotations
@@ -179,7 +178,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
 
              # Define required columns based on detected trait_type
              base_required_cols <- c("gene", "AF", "beta", "variant_variance")
-             categorical_required_cols <- c("N", "AC_cases", "prevalence")
+             categorical_required_cols <- c("N", "AC_cases")
              required_cols <- if (detected_trait_type == 'categorical') c(base_required_cols, categorical_required_cols) else base_required_cols
 
              if (!all(required_cols %in% names(data))) {
@@ -211,8 +210,8 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
              # --- Process based on detected trait_type --- #
              if (detected_trait_type == 'categorical') {
                 data <- data %>%
-                    dplyr::mutate(expected_count = 2* N * prevalence * AF) %>%
-                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N_cases", "functional_category"))) 
+                    dplyr::mutate(expected_count = 2* N * AC_cases / (2*N)) %>%
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence"))) 
              } else { # Continuous
                 data <- data %>%
                     dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Select final columns
@@ -237,6 +236,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
   # Combine valid dataframes
   combined_data <- dplyr::bind_rows(variant_data_list)
   message(paste("Loaded and combined data from", length(variant_data_list), "relevant files.", nrow(combined_data), "total variants."))
+
 
   return(combined_data)
 }

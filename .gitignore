@@ -10,6 +10,7 @@
 uv.lock
 old/*
 .DS_Store
-.python_version
-*.sh
+.python-version
 Python/__pycache__/*
+.windsurfrules
+R/.Rapp.history

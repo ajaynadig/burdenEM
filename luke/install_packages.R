@@ -1,7 +1,7 @@
 userlib <- Sys.getenv("R_LIBS_USER")
 if(!dir.exists(userlib)) dir.create(userlib, recursive=TRUE)
 options(repos = c(CRAN = "https://cloud.r-project.org/"))
-packages <- c("dplyr", "readr", "purrr", "stringr", "tidyr", "optparse", "jsonlite", "data.table", "glmmTMB")
+packages <- c("dplyr", "readr", "purrr", "stringr", "tidyr", "optparse", "jsonlite", "data.table", "glmmTMB", "RcppArmadillo")
 installed <- rownames(installed.packages())
 to_install <- setdiff(packages, installed)
 if(length(to_install)) install.packages(to_install, lib=userlib)

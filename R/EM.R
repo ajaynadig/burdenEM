@@ -1,12 +1,3 @@
-packages <- c("Rcpp","RcppArmadillo")
-
-for(p in packages){
-  if(!require(p, character.only = T)){
-    install.packages(p)
-  }
-}
-sourceCpp("R/EM.cpp")
-
 # Core Expectation-Maximization scripts
 EM_fit <- function(model,
                    max_iter,
@@ -48,6 +39,32 @@ EM_fit <- function(model,
     model$ll = ll
   }
 
+  return(model)
+}
+
+# --- New function: EM for grid-based models ---
+EM_fit_grid <- function(model, max_iter = 1000) {
+  features <- do.call(rbind, model$df$features)
+  print(paste0("likelihood: ", dim(model$df$likelihood)))
+  print(paste0("components: ", dim(model$components)))
+  print(paste0("features: ", dim(features)))
+  print(paste0("delta: ", dim(model$delta)))
+  cdl <- model$df$likelihood %*% t(model$components)
+  XtX_inv <- solve(t(features) %*% features)
+  delta <- model$delta
+  ll_old <- -Inf
+  ll_new <- NA
+  for (i in seq_len(max_iter)) {
+    weights <- features %*% delta
+    post <- weights * cdl
+    ll_new <- sum(log(rowSums(post)))
+    # if (!is.na(ll_old) && abs((ll_new - ll_old) / ll_new) < tol) break
+    post <- post / rowSums(post)
+    delta <- XtX_inv %*% t(features) %*% post
+    ll_old <- ll_new
+  }
+  model$delta <- delta
+  model$ll <- ll_new
   return(model)
 }
 
@@ -164,4 +181,43 @@ null_EM_rvas <- function(genetic_data,
 
 
   return(null_coefs)
+}
+
+#' Calculate Information Matrix for Delta Parameters
+#'
+#' Computes the observed Fisher information matrix for each feature stratum
+#' as the negative Hessian of the log-likelihood with respect to the delta parameters.
+#' The inverse of this matrix provides an estimate of the covariance matrix for delta.
+#'
+#' The delta parameters represent the mixture weights for components within each
+#' feature stratum. This information matrix (and its inverse, the covariance) is
+#' used for calculating standard errors of heritability estimates. The calculation
+#' is based on the method described by Louis (1982) for observed information
+#' from incomplete data.
+#'
+#' @param model A BurdenEM model object, which must have been at least initialized
+#'   (e.g., via `initialize_grid_model`) and ideally fitted (though fitting primarily
+#'   updates `model$delta`, which is an input here).
+#'   Key model components used: `model$null_index`, `model$df$features`,
+#'   `model$df$likelihood`, `model$components`, `model$delta`.
+#'
+#' @return A list of matrices. Each matrix in the list corresponds to a feature
+#'   stratum and represents the information matrix for the delta parameters in that
+#'   stratum (excluding the null component, which is used as a reference).
+#'   The dimensions of each matrix are (n_components - 1) x (n_components - 1).
+#' @export
+information_matrices <- function(model) {
+  remove_index <- model$null_index
+  features <- do.call(rbind, model$df$features)
+  cdl <- model$df$likelihood %*% t(model$components)
+  weights <- features %*% model$delta
+  gene_likelihood <- rowSums(weights * cdl)
+  cdl_normalized <- cdl / gene_likelihood
+  covariance <- list()
+  for (i in 1:ncol(features)) {
+    feature_cdl <- features[,i] * cdl_normalized
+    feature_cdl <- feature_cdl[,-remove_index] - feature_cdl[,remove_index]
+    covariance[[i]] <- t(feature_cdl) %*% feature_cdl
+  }
+  return(covariance)
 }
