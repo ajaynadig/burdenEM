@@ -59,7 +59,7 @@ process_variant_to_gene_poisson <- function(variant_data, verbose = FALSE) {
       prevalence = dplyr::first(prevalence), # Assumes prevalence is constant and in the data
       n_variants = dplyr::n(),
       burden_score = sum(2 * AF * (1 - AF)),
-      CAC_expected = 2 * prevalence * N * CAF, 
+      CAC_expected = 2 * prevalence * N * CAF,
       .groups = 'drop'
     ) %>%
     dplyr::filter(!is.na(gene))
@@ -127,7 +127,7 @@ run_burdenEM_rvas <- function(
     )
     if(verbose) message(paste("Successfully loaded", nrow(variant_data), "variants."))
 
-    # --- Detect Trait Type --- 
+    # --- Detect Trait Type ---
     required_binary_cols <- c("AC_cases", "N")
     is_binary <- all(required_binary_cols %in% names(variant_data))
     trait_type <- if(is_binary) "binary" else "continuous"
@@ -143,10 +143,10 @@ run_burdenEM_rvas <- function(
         gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
     ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
         dplyr::rename(burden_score_ld = burden_score)
-    if(verbose) message(paste("Loaded", nrow(ld_corrected_scores_df), 
+    if(verbose) message(paste("Loaded", nrow(ld_corrected_scores_df),
         "LD-corrected scores from:", dynamic_ld_scores_file))
 
-    # --- 3. Process Variants to Gene-Level --- 
+    # --- 3. Process Variants to Gene-Level ---
     if (verbose) message(paste("\n--- Processing Variants to Gene-Level (", trait_type, ") ---"))
     if (is_binary) {
         gene_level_data <- process_variant_to_gene_poisson(
@@ -154,9 +154,9 @@ run_burdenEM_rvas <- function(
         )
     } else {
         gene_level_data <- process_variant_to_gene(
-            variant_data = variant_data, 
+            variant_data = variant_data,
             frequency_bin_edges = intercept_frequency_bin_edges
-        ) %>% 
+        ) %>%
             dplyr::filter(!is.na(gene))
     }
 
@@ -171,20 +171,20 @@ run_burdenEM_rvas <- function(
     gene_level_data <- gene_level_data %>%
         left_join(ld_corrected_scores_df, by = c("gene" = merge_col, "functional_category" = "functional_category"))
 
-    # --- 5. Specify Effect Sizes (Continuous Only) & Prepare for Model --- 
+    # --- 5. Specify Effect Sizes (Continuous Only) & Prepare for Model ---
     if(trait_type == "continuous"){
         if(verbose) message("\n--- Specifying Gene Effect Sizes (Continuous) ---")
         # Pass per_allele_effects and correct_for_ld from function arguments
         message(paste("Applying per-allele effects:", per_allele_effects))
-        gene_level_data <- specify_gene_effect_sizes(gene_level_data, 
-                                                   per_allele_effects = per_allele_effects, 
+        gene_level_data <- specify_gene_effect_sizes(gene_level_data,
+                                                   per_allele_effects = per_allele_effects,
                                                    correct_for_ld = correct_for_ld)
     } else {
         if(verbose) message("\n--- Skipping Effect Size Specification (Binary) ---")
         # For binary, the relevant columns (CAC_cases, CAF, N, prevalence) are already present
     }
 
-    # --- 6. Prepare Gene Features & Add to Gene Data --- 
+    # --- 6. Prepare Gene Features & Add to Gene Data ---
     # This step uses the output 'gene_level_data' from step 3/4, independent of trait type
     # It adds the 'features' column based on 'feature_col_name'
     if (!is.null(feature_col_name)) {
@@ -200,7 +200,7 @@ run_burdenEM_rvas <- function(
         gene_level_data$features <- replicate(nrow(gene_level_data), c(1), simplify = FALSE)
          if (verbose) message("\n--- No feature column specified, assigning single feature bin ---")
     }
-    
+
     # --- 7. Define Likelihood Function ---
     if(trait_type == "continuous") {
         message("Using Normal likelihood for continuous trait.")
@@ -231,8 +231,8 @@ run_burdenEM_rvas <- function(
         h2_function <- function(beta, row) {
         (row$prevalence * (exp(beta)-1)^2 * 2*row$CAF)/(1-row$prevalence)}
     }
-    
-    # --- 8. Fit BurdenEM Model --- 
+
+    # --- 8. Fit BurdenEM Model ---
     if (verbose) message("\n--- Fitting BurdenEM Model ---")
     burdenem_model <- fit_burdenem_model(
         gene_level_data = gene_level_data,
@@ -243,11 +243,10 @@ run_burdenEM_rvas <- function(
         likelihood_function = likelihood_function,
         h2_function = h2_function
     )
-
     print(burdenem_model$component_endpoints)
     print(burdenem_model$delta)
 
-    # --- 9. Save Model --- 
+    # --- 9. Save Model ---
     # Generate dynamic filename
     output_filename_gen <- paste0("burdenEM_fit_", data_name, "_", pheno, "_", annotation_to_process, ".rds")
     output_path <- file.path(output_dir, output_filename_gen)
@@ -258,7 +257,7 @@ run_burdenEM_rvas <- function(
 }
 
 if (!interactive()) {
-    
+
     message("--- Parsing Command Line Arguments ---")
 
     # Check/install optparse
@@ -269,42 +268,42 @@ if (!interactive()) {
     library(optparse)
 
     option_list = list(
-        make_option(c("-p","--pheno"), type="character", default=NULL, 
+        make_option(c("-p","--pheno"), type="character", default=NULL,
             help="Phenotype name (e.g., '50_NA', '20002_diabetes') [required]", metavar="character"),
-        make_option(c("-a", "--annotation_to_process"), type="character", default=NULL, 
+        make_option(c("-a", "--annotation_to_process"), type="character", default=NULL,
             help="Single functional annotation category to process (e.g., 'pLoF', 'missense', 'synonymous') [required]", metavar="character"),
-        make_option(c("-f", "--feature_col_name"), type="character", default=NULL, 
+        make_option(c("-f", "--feature_col_name"), type="character", default=NULL,
             help="Optional: Name of the column in LD-scores file for gene features (e.g., 'oe_lof')", metavar="character"),
-        make_option(c("-b", "--num_feature_bins"), type="integer", default=5, 
+        make_option(c("-b", "--num_feature_bins"), type="integer", default=5,
             help="Number of bins for feature column [default %default].", metavar="integer"),
-        make_option(c("-v", "--variant_dir"), type="character", 
-            default=file.path(TOP_LEVEL_DATA_DIR, "data", "genebass", "var_txt"), 
+        make_option(c("-v", "--variant_dir"), type="character",
+            default=file.path(TOP_LEVEL_DATA_DIR, "data", "genebass", "var_txt"),
             help="Directory containing variant files [default %default]", metavar="character"),
-        make_option(c("-l", "--ld_scores_file"), type="character", 
+        make_option(c("-l", "--ld_scores_file"), type="character",
             default=file.path(TOP_LEVEL_DATA_DIR, "data", "utility", "ukbb_ld_corrected_burden_scores_<ANNOTATION>_<LOWER>_<UPPER>.tsv"),
             help="Path to LD-corrected burden scores file template (use <ANNOTATION> placeholder) [default %default].", metavar="character"),
-        make_option(c("-o", "--output_dir"), type="character", default="./burdenEM_example_output", 
+        make_option(c("-o", "--output_dir"), type="character", default="./burdenEM_example_output",
             help="Output directory for results [default %default].", metavar="character"),
-        make_option(c("-d", "--data_name"), type="character", default="genebass", 
+        make_option(c("-d", "--data_name"), type="character", default="genebass",
             help="Dataset name prefix (e.g., 'genebass') [default %default].", metavar="character"),
-        make_option(c("-c", "--burdenem_no_cpts"), type="integer", default=10, 
+        make_option(c("-c", "--burdenem_no_cpts"), type="integer", default=10,
             help="Number of components for BurdenEM [default %default].", metavar="integer"),
-        make_option(c("-i", "--num_iter"), type="integer", default=1000, 
+        make_option(c("-i", "--num_iter"), type="integer", default=1000,
             help="Number of EM iterations [default %default].", metavar="integer"),
         make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
             help="Calculate per-allele effect sizes instead of per-gene. [default: %default]"),
         make_option(c("--correct_for_ld"), action="store_true", default=FALSE, dest="correct_for_ld",
             help="Apply LD correction to burden scores and gamma."),
-        make_option(c("--correct_genomewide"), action="store_true", default=FALSE, 
+        make_option(c("--correct_genomewide"), action="store_true", default=FALSE,
                     help="Apply genome-wide burden correction after variant-to-gene processing [default %default]"),
         make_option(c("-q", "--quiet"), action="store_false", default=TRUE, dest="verbose",
             help="Suppress verbose messages."),
         make_option(c("--frequency_range"), type="character", default="0,0.001",
             help="Comma-separated string for AF range filter [min,max) (e.g., '0,0.001')", metavar="character"),
-        make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,3e-6,1e-5,3e-5,1e-4,3e-4,1e-3", 
+        make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,3e-6,1e-5,3e-5,1e-4,3e-4,1e-3",
             help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character")
-    ); 
-    
+    );
+
     opt_parser = OptionParser(option_list=option_list);
     opt = parse_args(opt_parser);
 
@@ -322,9 +321,9 @@ if (!interactive()) {
         message(paste("Creating output directory:", opt$output_dir))
         dir.create(opt$output_dir, recursive = TRUE, showWarnings = FALSE)
     }
-    
+
     message("\n--- Running BurdenEM RVAS Workflow from Command Line ---")
-    
+
     # Prepare arguments for the main function
     run_args <- list(
         variant_dir = opt$variant_dir,
