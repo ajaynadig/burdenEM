@@ -99,20 +99,21 @@ run_burdenEM_rvas <- function(
     ld_corrected_scores_file = NULL,
     data_name = "genebass",
     pheno = "50_NA",
-    annotation_to_process,
+    annotation_to_process='pLoF',
     intercept_frequency_bin_edges = c(0, 1e-5,1e-4, 1e-3),
     frequency_range = c(0, 0.001),
     feature_col_name = "lof.oe",
     num_feature_bins = 5,
     burdenem_no_cpts = 10, # TODO
     burdenem_grid_size = 100,
-    num_iter = 1000,
+    num_iter = 10000,
     bootstrap = TRUE,
     n_boot = 100,
     output_dir = OUTPUT_DIR,
     verbose = FALSE,
     per_allele_effects = FALSE,
-    correct_for_ld = FALSE,
+    customize_components = FALSE,
+    correct_for_ld = TRUE,
     correct_genomewide = FALSE
 ) {
 
@@ -134,17 +135,19 @@ run_burdenEM_rvas <- function(
     message(paste("Detected trait type:", trait_type))
 
     # --- 2. Load LD-Corrected Burden Scores ---
-    if(verbose) message("\n--- Loading LD-Corrected Burden Scores ---")
-    lower_fmt <- format(frequency_range[1], nsmall=1, scientific=FALSE)
-    upper_fmt <- format(frequency_range[2], nsmall=1, scientific=FALSE)
-    dynamic_ld_scores_file <- ld_corrected_scores_file %>%
-        gsub("<ANNOTATION>", annotation_to_process, ., fixed = TRUE) %>%
-        gsub("<LOWER>", lower_fmt, ., fixed = TRUE) %>%
-        gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
-    ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
-        dplyr::rename(burden_score_ld = burden_score)
-    if(verbose) message(paste("Loaded", nrow(ld_corrected_scores_df),
-        "LD-corrected scores from:", dynamic_ld_scores_file))
+    if(correct_for_ld){
+      if(verbose) message("\n--- Loading LD-Corrected Burden Scores ---")
+      lower_fmt <- format(frequency_range[1], nsmall=1, scientific=FALSE)
+      upper_fmt <- format(frequency_range[2], nsmall=1, scientific=FALSE)
+      dynamic_ld_scores_file <- ld_corrected_scores_file %>%
+          gsub("<ANNOTATION>", annotation_to_process, ., fixed = TRUE) %>%
+          gsub("<LOWER>", lower_fmt, ., fixed = TRUE) %>%
+          gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
+      ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
+          dplyr::rename(burden_score_ld = burden_score)
+      if(verbose) message(paste("Loaded", nrow(ld_corrected_scores_df),
+          "LD-corrected scores from:", dynamic_ld_scores_file))
+    }
 
     # --- 3. Process Variants to Gene-Level ---
     if (verbose) message(paste("\n--- Processing Variants to Gene-Level (", trait_type, ") ---"))
@@ -166,10 +169,12 @@ run_burdenEM_rvas <- function(
     message(paste("Aggregated to", nrow(gene_level_data), "gene-category rows."))
 
     # --- 4. Append LD-Corrected Scores ---
-    if(verbose) message("\n--- Appending LD-Corrected Burden Scores ---")
-    merge_col <- if (grepl("^ENSG", gene_level_data$gene[1])) "gene_id" else "gene"
-    gene_level_data <- gene_level_data %>%
-        left_join(ld_corrected_scores_df, by = c("gene" = merge_col, "functional_category" = "functional_category"))
+    if(correct_for_ld){
+      if(verbose) message("\n--- Appending LD-Corrected Burden Scores ---")
+      merge_col <- if (grepl("^ENSG", gene_level_data$gene[1])) "gene_id" else "gene"
+      gene_level_data <- gene_level_data %>%
+          left_join(ld_corrected_scores_df, by = c("gene" = merge_col, "functional_category" = "functional_category"))
+    }
 
     # --- 5. Specify Effect Sizes (Continuous Only) & Prepare for Model ---
     if(trait_type == "continuous"){
@@ -268,8 +273,8 @@ if (!interactive()) {
     library(optparse)
 
     option_list = list(
-        make_option(c("-p","--pheno"), type="character", default=NULL,
-            help="Phenotype name (e.g., '50_NA', '20002_diabetes') [required]", metavar="character"),
+        make_option(c("-p","--phenotypes"), type="character", default=NULL,
+            help="Phenotype code split by comma (default: 50_NA -> height).", metavar="character"),
         make_option(c("-a", "--annotation_to_process"), type="character", default=NULL,
             help="Single functional annotation category to process (e.g., 'pLoF', 'missense', 'synonymous') [required]", metavar="character"),
         make_option(c("-f", "--feature_col_name"), type="character", default=NULL,
@@ -288,7 +293,7 @@ if (!interactive()) {
             help="Dataset name prefix (e.g., 'genebass') [default %default].", metavar="character"),
         make_option(c("-c", "--burdenem_no_cpts"), type="integer", default=10,
             help="Number of components for BurdenEM [default %default].", metavar="integer"),
-        make_option(c("-i", "--num_iter"), type="integer", default=1000,
+        make_option(c("-i", "--num_iter"), type="integer", default=10000,
             help="Number of EM iterations [default %default].", metavar="integer"),
         make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
             help="Calculate per-allele effect sizes instead of per-gene. [default: %default]"),
@@ -298,6 +303,8 @@ if (!interactive()) {
                     help="Apply genome-wide burden correction after variant-to-gene processing [default %default]"),
         make_option(c("-q", "--quiet"), action="store_false", default=TRUE, dest="verbose",
             help="Suppress verbose messages."),
+        make_option(c("--customize_components"), action="store_true", default=FALSE, dest="customize_components",
+                    help="Customize selection of component endpoints using gene-level data. [default: %default]"),
         make_option(c("--frequency_range"), type="character", default="0,0.001",
             help="Comma-separated string for AF range filter [min,max) (e.g., '0,0.001')", metavar="character"),
         make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,3e-6,1e-5,3e-5,1e-4,3e-4,1e-3",
@@ -324,31 +331,36 @@ if (!interactive()) {
 
     message("\n--- Running BurdenEM RVAS Workflow from Command Line ---")
 
-    # Prepare arguments for the main function
-    run_args <- list(
-        variant_dir = opt$variant_dir,
-        ld_corrected_scores_file = opt$ld_scores_file,
-        data_name = opt$data_name,
-        pheno = opt$pheno,
-        annotation_to_process = opt$annotation_to_process,
-        intercept_frequency_bin_edges = as.numeric(strsplit(opt$intercept_frequency_bin_edges, ",")[[1]]),
-        frequency_range = as.numeric(strsplit(opt$frequency_range, ",")[[1]]),
-        feature_col_name = opt$feature_col_name,
-        num_feature_bins = opt$num_feature_bins,
-        burdenem_no_cpts = opt$burdenem_no_cpts, # Note: burdenem_no_cpts not used directly now
-        burdenem_grid_size = 100,
-        num_iter = opt$num_iter,
-        bootstrap = opt$bootstrap,
-        n_boot = opt$bootstrap_n,
-        output_dir = opt$output_dir,
-        verbose = opt$verbose,
-        per_allele_effects = opt$per_allele_effects,
-        correct_for_ld = opt$correct_for_ld,
-        correct_genomewide = opt$correct_genomewide
-    )
+    phenotypes <- str_split_1(opt$phenotype, ',')
 
-    # Call the main function with dynamically prepared arguments
-    fitted_model <- do.call(run_burdenEM_rvas, run_args)
+    for(pheno in phenotypes){
+
+      # Prepare arguments for the main function
+      run_args <- list(
+          variant_dir = opt$variant_dir,
+          ld_corrected_scores_file = opt$ld_scores_file,
+          data_name = opt$data_name,
+          pheno = pheno,
+          annotation_to_process = opt$annotation_to_process,
+          intercept_frequency_bin_edges = as.numeric(strsplit(opt$intercept_frequency_bin_edges, ",")[[1]]),
+          frequency_range = as.numeric(strsplit(opt$frequency_range, ",")[[1]]),
+          feature_col_name = opt$feature_col_name,
+          num_feature_bins = opt$num_feature_bins,
+          burdenem_no_cpts = opt$burdenem_no_cpts, # Note: burdenem_no_cpts not used directly now
+          burdenem_grid_size = 100,
+          num_iter = opt$num_iter,
+          bootstrap = opt$bootstrap,
+          n_boot = opt$bootstrap_n,
+          output_dir = opt$output_dir,
+          verbose = opt$verbose,
+          per_allele_effects = opt$per_allele_effects,
+          correct_for_ld = opt$correct_for_ld,
+          correct_genomewide = opt$correct_genomewide
+      )
+
+      # Call the main function with dynamically prepared arguments
+      fitted_model <- do.call(run_burdenEM_rvas, run_args)
+    }
 
     if (!is.null(fitted_model)) {
         message("\n--- Workflow Finished Successfully ---")
