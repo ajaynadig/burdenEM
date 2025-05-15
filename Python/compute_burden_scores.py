@@ -42,6 +42,7 @@ R_OUTPUT_FILE = Path(TOP_DIR) / "burdenEM_results/data/utility/ukbb_ld_corrected
 
 # --- Define Constants ---
 TRAIT = "50_NA" # Hard-coded trait name based on user request
+
 FUNCTIONAL_CATEGORIES = [
     # 'missense_benign',
     # 'missense_damaging',
