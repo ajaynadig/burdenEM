@@ -1,5 +1,17 @@
+setwd('~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM')
+
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/burdenEM_trio.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/EM.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/estimate_heritability.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/io.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/likelihoods.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/model.R")
+source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/R/secondary_analysis_functions.R")
+
+
 source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/example/set_up_asc.R")
 source("~/Mirror/oconnor_rotation/rare_dn_h2/github/burdenEM/example/set_up_kaplanis.R")
+
 
 
 resource_dir <- "~/Mirror/oconnor_rotation/rare_dn_h2/github/resources/"
@@ -14,6 +26,27 @@ load(paste0(output_dir,"models_ddd_Apr28_25.Rdata"))
 
 current_date <- format(Sys.Date(), "%b%y")
 
+
+#Estimate the excess of constrained mutations in each cohort
+
+genetic_data_all = get_genetic_data(5,autism_data)
+genetic_data_asc = get_genetic_data(31,autism_data)
+genetic_data_spark = get_genetic_data(34,autism_data)
+genetic_data_genedx= get_genetic_data(37,autism_data)
+
+constrained_RR <- sapply(list(genetic_data_all,
+                              genetic_data_asc,
+                              genetic_data_spark,
+                              genetic_data_genedx),
+                         function(data) {
+                           genetic_data = data$genetic_data
+                           features = data$features
+
+                           obs = sum(genetic_data$case_count[features[,1] == 1 | features[,2] == 1])
+                           exp = sum(genetic_data$expected_count[features[,1] == 1 | features[,2] == 1])
+
+                           return(c(genetic_data$N[1],obs,obs/exp))
+                         })
 
 #collate the heritability results into a summary dataframe
 
@@ -158,7 +191,7 @@ Polygenicity_plot <- ggplot(mapping = aes(x = 1:length(mutvar_cumsum),
   labs(x = "Number of Genes",
        y = "Cumulative Mutational Variance\nPTV + Mis2") +
   annotate('text', x = half_index + 10, y = 0.005,
-           label = "15 genes explain half\nof mutational variance",
+           label = "14 genes explain half\nof mutational variance",
            size = 5, fontface = "italic", hjust = 0)
 
 #Bootstrap enrichment
@@ -494,7 +527,7 @@ mutvar_compare_plot <- ggplot(data = mutvar_compare_df,
   labs(x = "Variant Class", y = "Mutational Variance\nObserved Scale")+
   theme(strip.text.y = element_text(size = 15, angle = 270),
         axis.text.x = element_text(color = rev(palette_variantclass), face = "bold"))+
-  ylim(0,0.045)+
+  ylim(0,0.047)+
   guides(fill = "none")+
   geom_rect(mapping = aes(xmin = 0.85, xmax = 2.4, ymin = 0.030, ymax = 0.044), color = "black", fill = "white")+
   annotate("text", x = 1, y = 0.04, label = "Autism", color = "darkgreen",
@@ -583,7 +616,7 @@ RReff_compare_plot <- ggplot(data = peneff_df_compare,
   labs(x = "Variant Class", y = "Effective Rate Ratio")+
   theme_bhr_legend_gridlines()+
   theme(axis.text.x = element_text(color = rev(palette_variantclass)[-c(1,2)], face = "bold"))+
-  ylim(0,42) +
+  ylim(0,44) +
   guides(fill = "none")
 
 FigDD <- mutvar_compare_plot + FracCases_compare_plot + RReff_compare_plot+
@@ -611,7 +644,7 @@ effectsize_thresh_Fu185 = count_genes_by_effectsize(burdenEM_models_autism[[1]][
                                                     genes_to_analyze = ASD185_genes)
 
 library(MetBrewer)
-forecast_df_average_expand <- read.table(paste0(output_dir,"forecasting_output_avgs_Mar42025.tsv"),
+forecast_df_average_expand <- read.table(paste0(output_dir,"forecasting_output_avgs_May42025.tsv"),
                                          sep = "\t", header = TRUE)
 SupplementaryTable6 = forecast_df_average_expand[forecast_df_average_expand$threshold == 0, -1]
 names(SupplementaryTable6) = c("New Data Dataset",

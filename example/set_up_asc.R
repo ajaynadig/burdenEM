@@ -249,7 +249,7 @@ proband_syn = sapply(variant_files,
                      })
 
 
-
+sum(proband_ptv) + sum(proband_mis2) + sum(proband_mis1) + sum(proband_mis0)+sum(proband_syn)
 #First, construct the ColData
 
 
