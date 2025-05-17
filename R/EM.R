@@ -72,7 +72,8 @@ bootstrap_EM <- function(model,
                          n_boot,
                          max_iter,
                          bootstrap_samples = NULL,
-                         bootstrap_seeds = NULL) {
+                         bootstrap_seeds = NULL,
+                         tol = 0) {
   if (is.null(bootstrap_samples)) {
     if (is.null(bootstrap_seeds)) {
       bootstrap_seeds <- 1:n_boot
@@ -96,7 +97,7 @@ bootstrap_EM <- function(model,
                               model_boot$conditional_likelihood = model_boot$conditional_likelihood[bootstrap_samples[,iter], , drop = FALSE]
                               model_boot$features = model_boot$features[bootstrap_samples[,iter], , drop = FALSE]
 
-                              boot_output <- EM_fit_cpp(model = model_boot, max_iter = max_iter, tol = 0)
+                              boot_output <- EM_fit(model = model_boot, max_iter = max_iter, tol)
 
                               if (iter %% 20 == 0) {
                                 cat(paste0("...",iter,"...("))
@@ -114,7 +115,8 @@ null_EM_trio <- function(genetic_data,
                          model,
                          max_iter,
                          n_null,
-                         grid_size) {
+                         grid_size,
+                         tol) {
 
   cat("...null EM")
 
@@ -136,8 +138,7 @@ null_EM_trio <- function(genetic_data,
                                                        grid_size = grid_size)
 
 
-                         model_null = EM_fit(model_null,
-                                             max_iter)
+                         model_null = EM_fit(model_null,max_iter = max_iter, tol)
 
                          return(model_null$delta)
 

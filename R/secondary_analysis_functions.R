@@ -115,8 +115,8 @@ bootstrap_function <- function(model, function_to_bootstrap, ...) {
 
 get_fraccase <- function(model,
                          genetic_data,
-                         gamma_scaling_factor,
-                         RR_thresh) {
+                         RR_thresh,
+                         gamma_scaling_factor = 1) {
   sum(2*genetic_data$case_rate*posterior_expectation(model,
                                                      genetic_data,
                                                      function(x) {
@@ -145,8 +145,8 @@ get_fraccase_df <- function(data,
                                                    gamma_scaling_factor,
                                                    RR_thresh)
     frac_casesgreater_combined = frac_casesgreater_pergene_PTV*data$ptv_scale_factor + frac_casesgreater_pergene_Mis2
-    
-    
+
+
     #bootstrap
     if (boot) {
       PTV_boot <- unlist(bootstrap_function(modelPTV,

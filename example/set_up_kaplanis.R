@@ -276,7 +276,7 @@ gnomad_input_df = gnomad_input_df[complete.cases(gnomad_input_df),]
 mut_calibration_syn <- burdenEM_trio(gnomad_input_df,
                                      features = NULL,
                                      component_endpoints = seq(-2,2,length.out = 31),
-                                     heritability_est = FALSE,
+                                     mutvar_est = FALSE,
                                      null_sim = FALSE,
                                      max_iter = 1000,
                                      bootstrap = FALSE,

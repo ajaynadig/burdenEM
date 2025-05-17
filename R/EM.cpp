@@ -9,7 +9,8 @@ using namespace Rcpp;
 List EM_fit_cpp(List model,
                 int max_iter,
                 double tol = 1e-6,
-                bool return_likelihood = true) {
+                bool return_likelihood = true,
+                bool return_numiter = true) {
 
   // 1) Extract everything from the R list
   arma::mat X  = as<arma::mat>(model["features"]);               // N × P
@@ -56,7 +57,9 @@ List EM_fit_cpp(List model,
 
   // ————————————————
   // print actual iteration count
+  if (return_numiter) {
   Rcpp::Rcout << "EM_fit_cpp: converged in " << iter << " iterations." << std::endl;
+  }
   // ————————————————
 
   // 4) Pack results back into the model list
