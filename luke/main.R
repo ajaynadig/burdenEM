@@ -57,7 +57,7 @@ process_variant_to_gene_poisson <- function(variant_data, verbose = FALSE) {
       prevalence = dplyr::first(prevalence), # Assumes prevalence is constant and in the data
       n_variants = dplyr::n(),
       burden_score = sum(2 * AF * (1 - AF)),
-      CAC_expected = 2 * prevalence * N * CAF, 
+      CAC_expected = 2 * prevalence * N * CAF,
       .groups = 'drop'
     ) %>%
     dplyr::filter(!is.na(gene))
@@ -97,20 +97,21 @@ run_burdenEM_rvas <- function(
     ld_corrected_scores_file = NULL,
     data_name = "genebass",
     pheno = "50_NA",
-    annotation_to_process,
+    annotation_to_process='pLoF',
     intercept_frequency_bin_edges = c(0, 1e-5,1e-4, 1e-3),
     frequency_range = c(0, 0.001),
     feature_col_name = "lof.oe",
     num_feature_bins = 5,
     burdenem_no_cpts = 10, # TODO
     burdenem_grid_size = 100,
-    num_iter = 1000,
+    num_iter = 10000,
     bootstrap = TRUE,
     n_boot = 100,
     output_dir = OUTPUT_DIR,
     verbose = FALSE,
     per_allele_effects = FALSE,
-    correct_for_ld = FALSE,
+    customize_components = FALSE,
+    correct_for_ld = TRUE,
     correct_genomewide = FALSE
 ) {
 
@@ -125,26 +126,28 @@ run_burdenEM_rvas <- function(
     )
     if(verbose) message(paste("Successfully loaded", nrow(variant_data), "variants."))
 
-    # --- Detect Trait Type --- 
+    # --- Detect Trait Type ---
     required_binary_cols <- c("AC_cases", "N")
     is_binary <- all(required_binary_cols %in% names(variant_data))
     trait_type <- if(is_binary) "binary" else "continuous"
     message(paste("Detected trait type:", trait_type))
 
     # --- 2. Load LD-Corrected Burden Scores ---
-    if(verbose) message("\n--- Loading LD-Corrected Burden Scores ---")
-    lower_fmt <- format(frequency_range[1], nsmall=1, scientific=FALSE)
-    upper_fmt <- format(frequency_range[2], nsmall=1, scientific=FALSE)
-    dynamic_ld_scores_file <- ld_corrected_scores_file %>%
-        gsub("<ANNOTATION>", annotation_to_process, ., fixed = TRUE) %>%
-        gsub("<LOWER>", lower_fmt, ., fixed = TRUE) %>%
-        gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
-    ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
-        dplyr::rename(burden_score_ld = burden_score)
-    if(verbose) message(paste("Loaded", nrow(ld_corrected_scores_df), 
-        "LD-corrected scores from:", dynamic_ld_scores_file))
+    if(correct_for_ld){
+      if(verbose) message("\n--- Loading LD-Corrected Burden Scores ---")
+      lower_fmt <- format(frequency_range[1], nsmall=1, scientific=FALSE)
+      upper_fmt <- format(frequency_range[2], nsmall=1, scientific=FALSE)
+      dynamic_ld_scores_file <- ld_corrected_scores_file %>%
+          gsub("<ANNOTATION>", annotation_to_process, ., fixed = TRUE) %>%
+          gsub("<LOWER>", lower_fmt, ., fixed = TRUE) %>%
+          gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
+      ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
+          dplyr::rename(burden_score_ld = burden_score)
+      if(verbose) message(paste("Loaded", nrow(ld_corrected_scores_df),
+          "LD-corrected scores from:", dynamic_ld_scores_file))
+    }
 
-    # --- 3. Process Variants to Gene-Level --- 
+    # --- 3. Process Variants to Gene-Level ---
     if (verbose) message(paste("\n--- Processing Variants to Gene-Level (", trait_type, ") ---"))
     if (is_binary) {
         gene_level_data <- process_variant_to_gene_poisson(
@@ -152,9 +155,9 @@ run_burdenEM_rvas <- function(
         )
     } else {
         gene_level_data <- process_variant_to_gene(
-            variant_data = variant_data, 
+            variant_data = variant_data,
             frequency_bin_edges = intercept_frequency_bin_edges
-        ) %>% 
+        ) %>%
             dplyr::filter(!is.na(gene))
     }
 
@@ -164,25 +167,27 @@ run_burdenEM_rvas <- function(
     message(paste("Aggregated to", nrow(gene_level_data), "gene-category rows."))
 
     # --- 4. Append LD-Corrected Scores ---
-    if(verbose) message("\n--- Appending LD-Corrected Burden Scores ---")
-    merge_col <- if (grepl("^ENSG", gene_level_data$gene[1])) "gene_id" else "gene"
-    gene_level_data <- gene_level_data %>%
-        left_join(ld_corrected_scores_df, by = c("gene" = merge_col, "functional_category" = "functional_category"))
+    if(correct_for_ld){
+      if(verbose) message("\n--- Appending LD-Corrected Burden Scores ---")
+      merge_col <- if (grepl("^ENSG", gene_level_data$gene[1])) "gene_id" else "gene"
+      gene_level_data <- gene_level_data %>%
+          left_join(ld_corrected_scores_df, by = c("gene" = merge_col, "functional_category" = "functional_category"))
+    }
 
-    # --- 5. Specify Effect Sizes (Continuous Only) & Prepare for Model --- 
+    # --- 5. Specify Effect Sizes (Continuous Only) & Prepare for Model ---
     if(trait_type == "continuous"){
         if(verbose) message("\n--- Specifying Gene Effect Sizes (Continuous) ---")
         # Pass per_allele_effects and correct_for_ld from function arguments
         message(paste("Applying per-allele effects:", per_allele_effects))
-        gene_level_data <- specify_gene_effect_sizes(gene_level_data, 
-                                                   per_allele_effects = per_allele_effects, 
+        gene_level_data <- specify_gene_effect_sizes(gene_level_data,
+                                                   per_allele_effects = per_allele_effects,
                                                    correct_for_ld = correct_for_ld)
     } else {
         if(verbose) message("\n--- Skipping Effect Size Specification (Binary) ---")
         # For binary, the relevant columns (CAC_cases, CAF, N, prevalence) are already present
     }
 
-    # --- 6. Prepare Gene Features & Add to Gene Data --- 
+    # --- 6. Prepare Gene Features & Add to Gene Data ---
     # This step uses the output 'gene_level_data' from step 3/4, independent of trait type
     # It adds the 'features' column based on 'feature_col_name'
     if (!is.null(feature_col_name)) {
@@ -198,7 +203,7 @@ run_burdenEM_rvas <- function(
         gene_level_data$features <- replicate(nrow(gene_level_data), c(1), simplify = FALSE)
          if (verbose) message("\n--- No feature column specified, assigning single feature bin ---")
     }
-    
+
     # --- 7. Define Likelihood Function ---
     if(trait_type == "continuous") {
         message("Using Normal likelihood for continuous trait.")
@@ -229,8 +234,8 @@ run_burdenEM_rvas <- function(
         h2_function <- function(beta, row) {
         (row$prevalence * (exp(beta)-1)^2 * 2*row$CAF)/(1-row$prevalence)}
     }
-    
-    # --- 8. Fit BurdenEM Model --- 
+
+    # --- 8. Fit BurdenEM Model ---
     if (verbose) message("\n--- Fitting BurdenEM Model ---")
     burdenem_model <- fit_burdenem_model(
         gene_level_data = gene_level_data,
@@ -241,11 +246,10 @@ run_burdenEM_rvas <- function(
         likelihood_function = likelihood_function,
         h2_function = h2_function
     )
-
     print(burdenem_model$component_endpoints)
     print(burdenem_model$delta)
 
-    # --- 9. Save Model --- 
+    # --- 9. Save Model ---
     # Generate dynamic filename
     output_filename_gen <- paste0("burdenEM_fit_", data_name, "_", pheno, "_", annotation_to_process, ".rds")
     output_path <- file.path(output_dir, output_filename_gen)

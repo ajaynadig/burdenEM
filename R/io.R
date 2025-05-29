@@ -155,8 +155,9 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
 
       tryCatch({
           # Read file, explicitly trying to read trait_type as character
-          data <- readr::read_tsv(file_path, show_col_types = FALSE,
-                                 col_types = readr::cols(gene = "c", N="d", AC_cases="d", prevalence="d", trait_type = "c", .default = "d"))
+          data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
+                                                                                             description = 'c', CHR = 'c' , trait_type = 'c',
+                                                                                             .default = "d")) # Guess others
 
           if (nrow(data) > 0) {
 
@@ -211,7 +212,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
              if (detected_trait_type == 'categorical') {
                 data <- data %>%
                     dplyr::mutate(expected_count = 2* N * AC_cases / (2*N)) %>%
-                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence"))) 
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence")))
              } else { # Continuous
                 data <- data %>%
                     dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Select final columns
