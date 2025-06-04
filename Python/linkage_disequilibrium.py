@@ -127,7 +127,6 @@ def get_burden_score(matrices: List[sparse.spmatrix],
     
     burden_scores = []
     for ld_mat, snplist in zip(matrices, merged_snplists):
-        # print(f"Fraction passing AF filter: {snplist.filter('missing_mask').select('AF_mask').mean().item()}")
         # Drop variants from the LD matrix that didn't merge with the annotation data
         idx_into_matrix = snplist.filter('missing_mask', 'AF_mask').select('matrix_index').to_numpy().flatten()
         ld_mat = ld_mat[idx_into_matrix, :][:, idx_into_matrix]
@@ -143,9 +142,8 @@ def get_burden_score(matrices: List[sparse.spmatrix],
         result = {}
         for annot_name in annot_names:
             af_or_0 = snplist.with_columns(
-                (pl.col(annot_af_name) * (pl.col("annotation") == annot_name)).alias(annot_name)
+                (pl.col(annot_af_name) * (pl.col("annotation") == annot_name).fill_null(False)).alias(annot_name)
             ).select(annot_name).to_numpy().flatten()
-
             weights = np.sqrt(2 * af_or_0 * (1-af_or_0)).ravel()
             result[annot_name] = np.dot(weights, operator @ weights)
         burden_scores.append(result)

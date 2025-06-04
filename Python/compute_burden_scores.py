@@ -15,23 +15,23 @@ if str(script_dir) not in sys.path:
     sys.path.append(str(script_dir))
 
 # --- Import custom functions/classes --- 
-from linkage_disequilibrium import get_burden_score #, XtXOpt, DiagOpt
+from linkage_disequilibrium import get_burden_score
 
 # --- Define Paths --- 
 
-TOP_DIR = "/Users/lukeoconnor/Dropbox"
+TOP_DIR = "/Users/loconnor/Dropbox"
 
 # Directory containing the within-gene LD matrices (e.g., .npz files)
 LD_MATRIX_DIR = Path(TOP_DIR) / "within_gene_ld_ukbb"
 
 # Directory containing variant-level data
-VARIANT_DATA_DIR = Path(TOP_DIR) / "burdenEM_results/data/utility/test_ukbb_exome_vep.txt.bgz"
+VARIANT_DATA_FILE = Path(TOP_DIR) / "burdenEM_results/data/utility/test_ukbb_exome_vep2.txt.bgz"
 
 # Path to the gnomAD LoF metrics file (for gene ID mapping)
 GNOMAD_LOF_METRICS_FILE = Path(TOP_DIR) / "burdenEM_results/data/utility/gnomad.v4.constraint.by_gene.tsv"
 
 # Annotations to get from the gnomAD file
-GENE_ANNOT_NAMES = ['lof.oe', 'mis_pphen.oe', 'lof.oe_ci.upper', 'cds_length']
+GENE_ANNOT_NAMES = ['lof.oe', 'mis_pphen.oe', 'lof.oe_ci.upper', 'cds_length', 'lof.mu', 'mis.mu']
 
 # Output directory for results (keep for later)
 OUTPUT_DIR = Path("./burden_scores_output")
@@ -44,12 +44,11 @@ R_OUTPUT_FILE = Path(TOP_DIR) / "burdenEM_results/data/utility/ukbb_ld_corrected
 TRAIT = "50_NA" # Hard-coded trait name based on user request
 
 FUNCTIONAL_CATEGORIES = [
-    # 'missense_benign',
-    # 'missense_damaging',
+    'missense_benign',
+    'missense_damaging',
     'pLoF', 
     'synonymous'
 ]
-# FUNCTIONAL_CATEGORIES = ['synonymous']
 ANNOT_NAMES = FUNCTIONAL_CATEGORIES  # Annotation columns to process
 MIN_AF = 0.0
 MAX_AF = 0.0001
@@ -138,7 +137,7 @@ def main():
     
     # --- Argument Parsing --- 
     parser = argparse.ArgumentParser(description="Compute LD-corrected burden scores from variant summary statistics.")
-    parser.add_argument("--sumstats", default=VARIANT_DATA_DIR, help="Path to the *directory* containing summary statistics files (e.g., where genebass_TRAIT_CATEGORY_*.txt.bgz files are located)")
+    parser.add_argument("--variant_data", default=VARIANT_DATA_FILE, help="Path to the *directory* containing summary statistics files (e.g., where genebass_TRAIT_CATEGORY_*.txt.bgz files are located)")
     parser.add_argument("--gene_map", default=GNOMAD_LOF_METRICS_FILE, help="Path to the gene symbol to Ensembl ID mapping file.")
     parser.add_argument("--ld_matrices", default=LD_MATRIX_DIR, help="Path to the directory containing LD matrices.")
     parser.add_argument("--output_prefix", "-o", default=R_OUTPUT_FILE, help="Prefix for the output files (e.g., Results/ukbb_ld_corrected_burden_scores)")
@@ -155,8 +154,8 @@ def main():
     gene_to_id_map, gnomad_df = load_gnomad_mapping(GNOMAD_LOF_METRICS_FILE, GENE_ANNOT_NAMES)
 
     # 2. Load sumstats for each functional category
-    all_sumstats_df = pl.read_csv(
-        args.sumstats,
+    variants_df = pl.read_csv(
+        args.variant_data,
         separator='\t',
         has_header=True,
         comment_prefix='#',
@@ -164,7 +163,7 @@ def main():
     ).filter((pl.col('AF') >= MIN_AF), (pl.col('AF') <= MAX_AF))
 
     # Determine genes to process based on --num_genes
-    genes_to_process = sorted(list(all_sumstats_df['gene'].unique()))
+    genes_to_process = sorted(list(variants_df['gene'].unique()))
     if args.num_genes is not None and args.num_genes > 0:
         genes_to_process = genes_to_process[:args.num_genes]
         print(f"\nLimiting processing to the first {len(genes_to_process)} genes.")
@@ -182,7 +181,7 @@ def main():
             genes_without_id += 1
             continue
 
-        gene_sumstats_df = all_sumstats_df\
+        gene_sumstats_df = variants_df\
                         .filter(pl.col("gene") == gene_symbol)\
                         .rename({"AF": "AF_annot"}) # avoid name conflict
 
@@ -242,7 +241,9 @@ def main():
         # Construct output filename using the prefix and output directory
         output_filename = f"{args.output_prefix}_{category}_{MIN_AF}_{MAX_AF}.tsv"
         output_path = OUTPUT_DIR / Path(output_filename).name # Ensure it's placed in OUTPUT_DIR
-        if not args.no_save:
+        if args.no_save:
+            print(f"Would write {category_df.height} rows for category '{category}' to {output_path}")
+        else:
             print(f"Writing {category_df.height} rows for category '{category}' to {output_path}")
             category_df.select(output_columns).write_csv(output_path, separator='\t')
 
