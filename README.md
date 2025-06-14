@@ -1,10 +1,94 @@
 # burdenEM RVAS
 
-## `model` object
-The new pipeline centers on the new `model` object. This object contains likelihoods
+This repository implements a method for estimating the distribution of burden effect sizes from rare variant association statistics, and calculating downstream estimators. A typical workflow is to (1) fit mixture models for some set of traits, and (2) calculate a downstream estimator. Step (1) requires (a) a `studies.tsv` file listing the traits/datsets to be analyzed, (b) a `genes.tsv` file containing gene annotations and possibly LD-corrected burden scores, and (c) one or more `sumstats.txt.bgz` files containing the variant-level summary statistics for each dataset. It computes a `.rds` file containing the fitted model for each row of `studies.tsv`. Step (2) requires (a) the same `studies.tsv` file, and (b) the `.rds` files. 
+
+For example:
+
+```bash
+# Step (1)
+./cli_main.R data/studies.tsv --annotation pLoF --trait_type all
+
+# Step (2)
+./cli.R heritability studies.tsv --annotation pLoF --trait_type all
+```
+
+## CLI
+
+The CLI has two commands, `cli_main.R` and `cli.R`, for steps 1 and 2 respectively.
+
+### Step 1 options
+Positional arguments:
+- `studies_file`: Path to the TSV file defining studies to run (must contain columns: `identifier`, `dataset`, `sumstats_filename_pattern`). [required]
+
+Optional flags:
+- `-a`, `--annotation`: Single functional annotation category to process (e.g., 'pLoF', 'missense', 'synonymous'). [required]
+- `-g`, `--genes_file`: Path to the genes file template (use `<ANNOTATION>`, `<LOWER>`, `<UPPER>`, and optionally `<DATASET>` placeholders). [required]
+- `-f`, `--feature_col_name`: Optional: Name of the column in the genes file for gene features (e.g., 'oe_lof').
+- `-b`, `--num_feature_bins`: Number of bins for feature column [default 5].
+- `-i`, `--num_iter`: Number of EM iterations [default 10000].
+- `--per_allele_effects`: Calculate per-allele effect sizes instead of per-gene. [default: FALSE]
+- `--correct_for_ld`: Apply LD correction to burden scores and gamma. [default: FALSE]
+- `--frequency_range`: Comma-separated min,max for allele frequency range (e.g., '0,0.001'). [default: "0,0.001"]
+- `--intercept_frequency_bin_edges`: Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3'). [default: "0,1e-5,1e-4,1e-3"]
+- `--no_parallel`: Disable parallel execution across studies (runs sequentially). [default: FALSE]
+- `-v`, `--verbose`: Print extra details during execution. [default: FALSE]
+
+
+### Step 2 subcommands
+Each step 2 subcommand requires a `studies.tsv` file as its first positional argument. It outputs a single table, which will be located within a `tables` subdirectory of the directory containing the `studies.tsv` file. This table is named with the same prefix as the `studies.tsv` file and with the name of the subcommand.
+
+The subcommands are:
+- `heritability`: computes heritability components for each study
+- `polygenicity`: computes several polygenicity metrics
+- `distribution`: Computes the number of genes required to explain various fractions of heritability
+- `replication`: Calculates p-value replication metrics between a primary study and other studies for the same trait. Requires specifying a `--primary_dataset`.
+- `effect_replication`: Calculates effect-size replication metrics between a primary study and other studies for the same trait. Requires specifying a `--primary_dataset`.
+
+### Step 2 options
+- `studies_file` (required)
+- `--annotation`, `-a` the variant annotation (default: pLoF)
+- `--trait_type`, `-t` either 'binary', 'continuous', or 'all' (default: all)
+- `--no_parallel` use sequential instead of parallel execution across studies
+- `--custom_name=<cn>` A custom string to be inserted into the output filename
+- `--primary_dataset=<pd>` For `replication` and `effect_replication` subcommands, specifies the identifier of the dataset to be used as the primary study for comparisons.
+- `--help`, `-h`
+- `--verbose`, `-v`
+
+## File formats
+- `.studies.tsv` with one line per study-phenotype pair
+    - `identifier`
+    - `trait_type`
+    - `dataset`
+    - `description`
+    - `abbreviation`
+    - `sumstats_filename_pattern` containing placeholders `<frequency_range>` and `<annotation>`
+    - `model_filename`
+- `.model.rds`
+- `.sumstats.txt.bgz`
+    - `gene`, either a symbol or ENSG ID
+    - `POS`
+    - `CHR`
+    - `beta`
+    - `N`
+    - `variant_variance`
+    - `AF`
+    - `trait_type`
+    - `AC_cases` (if trait_type is binary)
+    - `prevalence` (if trait_type is binary)
+- `.genes.txt`
+    - `gene`, the symbol
+    - `gene_id`, the ENSG ID
+    - `burden_score_corrected`
+    - `burden_score_uncorrected`
+    - any others, e.g. `lof.oe`
+
+## API
+
+### `model` object
+The `model` object contains likelihoods
 for each gene evaluated at each point in a prespecified grid of effect sizes. After
 model fitting, it also contains the mixture weights for each component,
-as well ass an information matrix for these mixturue weights.
+as well as an information matrix for these mixturue weights.
 
 It is a list with the following components:
 
@@ -14,32 +98,19 @@ It is a list with the following components:
 - `component_endpoints`: A numeric vector of the component endpoints.
 - `null_index`: One component is required to be 'null', and this is the index of that component.
 - `delta`: A matrix of the mixture weights for each feature (row) and component (column).
-- `h2_function`: A function which operates on an effect size and a row of the data frame `df`, returning the heritability explained by that gene if it has that effect size.
+- `h2_function`: A function that operates on an effect size and a row of the data frame `df`, returning the heritability explained by that gene if it has that effect size.
+- `pval_function`: A function that operates on a row of the data frame `df`, returning the one-tailed p-value for that row. A p-value close to zero indicates a postive effect, and a p-value close to one indicates a negative effect.
+- `get_power_function`: A function that returns a power function for a given p-value threshold. This power function operates on a vector of effect sizes and a row of the data frame `df`, returning the one-tailed power for each effect size at the chosen p-value threshold.
 
-## Fitting the model
+### Fitting the model
 The model fitting procedure requires two inputs: a variant-level summary statistics file and a gene-level file containing any gene annotation data and (optionally) LD-corrected burden scores. There can be multiple variant-level files, which will be concatenated. It writes a .rds file containing the fitted model. The gene-level file contains features that are binned.
 
-The same function (`run_burdenEM_rvas` in `luke/main.R`) runs either on continuous or binary traits. For the latter it fits a Poisson model, which seems to produce inflated estimates for synonymous variants (I think this is expected). For a continuous trait it runs either a per-allele or a per-sd effect size model.
+The same function (`run_burdenEM_rvas` in `luke/main.R`) runs either on continuous or binary traits. For the latter it fits a negative binomial model with overdispersion parameter estimated using method of moments. For a continuous trait it runs either a per-allele or a per-sd effect size model.
 
-The goal is that all downstream analyses will be agnostic to the kind of model used. The key to achieving this is the `h2_function` stored inside of the model object. Any downstream analysis of heritability components should use this function to avoid needing to know the details of the model that was fitted.  
-
-## Computing heritability components
-Call the function `estimate_heritability_components` with the model object. It returns a list with the total heritability, the heritability explained by each component, and the heritability explained by positive and negative effects, each with a point estimate and standard error.
-
-This function itself calls `posterior_expectation_with_se` with the `h2_function` stored in the model object.
-
-## Computing arbitrary posterior means
+### Computing arbitrary posterior means
 Most estimators of interest can be expressed as the posterior mean of some function of beta. To compute
 such an estimator, specify a function `my_function(beta)` or `my_function(beta, row)` where `row` is a row of the data frame `df`. Then, call `result<-posterior_expectation_with_se(model, my_function)`, and this returns a list with the posterior expectation for each feature (`result$mean`) and its standard error (`result$se`). A limitation is that you cannot currently obtain the covariance of two posterior means, which would be useful, for example, to get the standard error of their ratio.
 
 To compute the heritability and its standard error, call `result<-posterior_expectation_with_se(model, model$h2_function)`. The idea is that this can be completely general across different likelihoods (gaussian, poisson, etc.) and also across different definitions of the effect size (per-allele vs per-s.d.).
 
-To compute gene-specific posterior means, instead of calling `posterior_expectation_with_se`, call `posterior_expectation2(model, my_function)`. Similarly, `my_function` can take either one argument or two.
-
-## Partial list of to do items
-- Integrate negative binomial model for binary traits
-- Combine trio and rvas workflows, which I think should be much easier with these changes
-- Integrate new posterior expectation code with various estimators, such as power calculations
-- Run across traits; I've tried height, bmi, LDL / pLoF, synonymous
-- Maybe get AoU ld-corrected burden scores; LDL looks like it has inflation in synonymous
-- 
+To compute gene-specific posterior means, instead of calling `posterior_expectation_with_se`, call `posterior_expectation2(model, my_function)`. This does not return standard errors.

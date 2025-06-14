@@ -19,7 +19,7 @@ from linkage_disequilibrium import get_burden_score
 
 # --- Define Paths --- 
 
-TOP_DIR = "/Users/loconnor/Dropbox"
+TOP_DIR = "/Users/lukeoconnor/Dropbox"
 
 # Directory containing the within-gene LD matrices (e.g., .npz files)
 LD_MATRIX_DIR = Path(TOP_DIR) / "within_gene_ld_ukbb"
@@ -51,7 +51,7 @@ FUNCTIONAL_CATEGORIES = [
 ]
 ANNOT_NAMES = FUNCTIONAL_CATEGORIES  # Annotation columns to process
 MIN_AF = 0.0
-MAX_AF = 0.0001
+MAX_AF = 0.001
 
 AF_RTOL = 1
 
@@ -94,41 +94,6 @@ def load_sumstats_for_category(base_dir: Path, trait: str, category: str) -> Opt
     print(f"  Columns in {category} sumstats: {df.columns}")
     return df
 
-def calculate_uncorrected_score(
-    annot_df: pl.DataFrame, 
-    af_col: str, 
-    annot_names: List[str]
-) -> Dict[str, float]:
-    """
-    Calculates the uncorrected burden score sum(2*AF*(1-AF)) for each annotation.
-
-    Args:
-        annot_df: DataFrame containing variants and one-hot annotation columns.
-        af_col: Name of the allele frequency column.
-        annot_names: List of annotation column names to calculate scores for.
-
-    Returns:
-        A list of uncorrected scores, one for each annotation name. Returns 0.0 for 
-        annotations not present or with no variants.
-    """
-    scores = {}
-
-    for name in annot_names:
-        # Filter for variants belonging to this annotation
-        annot_variants = annot_df.filter(pl.col("annotation") == name)
-        if annot_variants.is_empty() or af_col not in annot_variants.columns:
-            scores[name] = 0.0
-            continue
-            
-        # Calculate score for this annotation's variants
-        # Ensure AF column is float and handle potential nulls
-        af_series = annot_variants[af_col].cast(pl.Float64)
-        score_series = 2.0 * af_series * (1.0 - af_series)
-        scores[name] = score_series.sum() # Handle potential null sum if all AFs were null
-
-    
-    # Ensure the order matches the input annot_names
-    return scores
 
 # --- Main Execution --- 
 
@@ -160,7 +125,9 @@ def main():
         has_header=True,
         comment_prefix='#',
         null_values="NA",
-    ).filter((pl.col('AF') >= MIN_AF), (pl.col('AF') <= MAX_AF))
+        ) \
+        .filter((pl.col('AF') >= MIN_AF), (pl.col('AF') <= MAX_AF)) \
+        .group_by('SNP').first()
 
     # Determine genes to process based on --num_genes
     genes_to_process = sorted(list(variants_df['gene'].unique()))
@@ -184,13 +151,12 @@ def main():
         gene_sumstats_df = variants_df\
                         .filter(pl.col("gene") == gene_symbol)\
                         .rename({"AF": "AF_annot"}) # avoid name conflict
-
         snplist_df = pl.read_csv(ld_snplist_path, separator='\t', has_header=True)\
                         .with_columns(('chr' + pl.col('SNP')).name.keep())
 
         ld_matrix = sparse.load_npz(ld_matrix_path)
 
-        corrected_scores_dict = get_burden_score(
+        corrected_scores_list, uncorrected_scores_list = get_burden_score(
             matrices=[ld_matrix],
             matrix_snplists=[snplist_df],
             annot_snplists=[gene_sumstats_df],
@@ -198,13 +164,9 @@ def main():
             annot_names=ANNOT_NAMES,
             merge_fields=['SNP'],
             AF_rtol=AF_RTOL,
-        )[0] # Assuming it returns a list/tuple with the dict as the first element
-
-        uncorrected_scores_dict = calculate_uncorrected_score(
-            gene_sumstats_df,
-            "AF_annot",
-            ANNOT_NAMES
         )
+        corrected_scores_dict = corrected_scores_list[0]
+        uncorrected_scores_dict = uncorrected_scores_list[0]
 
         for category in ANNOT_NAMES:
             gene_results_list.append({

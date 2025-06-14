@@ -58,7 +58,7 @@ process_data_rvas <- function(input_data,
             \nForcing it to be "continuous" for now')
     input_data$trait_type <- 'continuous'
   }else{
-    if(tolower(unique(input_data$trait_type)) %in% c('binary', 'categorical', 'qualitative')){
+    if(tolower(unique(input_data$trait_type)) %in% BINARY_TRAIT_TYPES){
       input_data$trait_type <- 'binary'
     }else{
       input_data$trait_type <- 'continuous'
@@ -100,18 +100,28 @@ process_data_rvas <- function(input_data,
 #' @importFrom stringr str_match
 #' @importFrom purrr map
 #' @export
-load_variant_files_with_category <- function(variant_dir, data_name, pheno, annotations_to_process, frequency_range = NULL) {
+load_variant_files_with_category <- function(variant_dir, variant_file_pattern = NULL, data_name, pheno, annotations_to_process, frequency_range = NULL) {
+  BINARY_TRAIT_TYPES <- c("binary", "categorical", "icd_first_occurrence")
 
   message(paste("Looking for variant files in:", variant_dir))
-  # Construct the regex pattern to match specific annotations
-  if (is.null(annotations_to_process) || length(annotations_to_process) == 0) {
-    stop("No annotations provided to 'annotations_to_process'.")
+
+  if (!is.null(variant_file_pattern) && nzchar(variant_file_pattern)) {
+    # If a specific pattern is provided by the CLI (via studies file), use it directly
+    file_pattern <- variant_file_pattern
+    message(paste("Using provided file pattern:", file_pattern))
+  } else {
+    # Fallback: Construct the regex pattern to match specific annotations if no direct pattern is given
+    if (is.null(annotations_to_process) || length(annotations_to_process) == 0) {
+      stop("No annotations provided to 'annotations_to_process' and no 'variant_file_pattern' was given.")
+    }
+    if (is.null(data_name) || is.null(pheno)){
+        stop("data_name and pheno must be provided if variant_file_pattern is not specified.")
+    }
+    # Create a regex OR group for the annotations, e.g., (pLoF|missense\|LC)
+    annotations_regex_part <- paste0("(", paste(annotations_to_process, collapse = "|"), ")")
+    file_pattern <- paste0("^", data_name, "_", pheno, "_", annotations_regex_part, "_.*\\.txt\\.bgz$")
+    message(paste("Constructed file pattern:", file_pattern))
   }
-  # Create a regex OR group for the annotations, e.g., (pLoF|missense\|LC)
-  # Note: We assume annotation names don't need further complex regex escaping for now.
-  annotations_regex_part <- paste0("(", paste(annotations_to_process, collapse = "|"), ")")
-  file_pattern <- paste0("^", data_name, "_", pheno, "_", annotations_regex_part, "_.*\\.txt\\.bgz$")
-  message(paste("Using file pattern:", file_pattern))
 
   variant_files <- list.files(path = variant_dir, pattern = file_pattern, full.names = TRUE)
 
@@ -131,27 +141,19 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
       message(paste("Processing:", filename))
 
       # Extract annotation part from filename
-      annotation_match <- stringr::str_match(filename, paste0(data_name, "_", pheno, "_([^_]+(?:_[^_]+)*?)_"))
-      annotation_part <- if (!is.na(annotation_match[1, 2])) annotation_match[1, 2] else NA
+      # This part needs to be robust. If variant_file_pattern is used, data_name and pheno might not be perfectly aligned for this regex.
+      # For now, we assume the <ANNOTATION> part in the pattern (which was substituted by opt$annotation_to_process)
+      # IS the functional_category_label we want. This is true if variant_file_pattern was like ^dataset_pheno_ACTUALANNOTATION_.*.txt.bgz
+      # If variant_file_pattern is more complex, this extraction might need to be smarter or rely on `annotations_to_process` directly.
+      # The `annotations_to_process` from main.R is a single string now.
+      functional_category_label <- annotations_to_process[1] # This is the single annotation string (e.g., "pLoF")
+      # Old extraction logic, might be useful if functional_category_label needs to be derived differently:
+      # annotation_match <- stringr::str_match(filename, paste0(data_name, "_", pheno, "_([^_]+(?:_[^_]+)*?)_")) 
+      # annotation_part <- if (!is.na(annotation_match[1, 2])) annotation_match[1, 2] else NA
+      # functional_category_label <- annotation_part # This was the old logic if derived from filename
 
-      # Map filename part to desired functional category label
-      functional_category_label <- dplyr::case_when(
-          is.na(annotation_part) ~ NA_character_,
-          grepl("^pLoF", annotation_part, ignore.case = TRUE) ~ "pLoF",
-          grepl("^missense", annotation_part, ignore.case = TRUE) ~ "missense|LC",
-          grepl("^synonymous", annotation_part, ignore.case = TRUE) ~ "synonymous",
-          TRUE ~ NA_character_ # Default for non-matching/other categories
-      )
-
-      if (is.null(functional_category_label)) {
-          message(paste("  -> Skipping file (annotation pattern not recognized):", annotation_part))
-          return(NULL)
-      }
-
-      if (!functional_category_label %in% annotations_to_process) {
-          message(paste("  -> Skipping file (annotation '", functional_category_label, "' not in target list)"))
-          return(NULL)
-      }
+      # The functional_category_label is now directly taken from annotations_to_process[1]
+      # No further mapping or checking based on filename parts is needed here when variant_file_pattern is used.
 
       tryCatch({
           # Read file, explicitly trying to read trait_type as character
@@ -168,7 +170,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
                  return(NULL)
                }
                first_trait_val <- tolower(data$trait_type[1])
-               if (first_trait_val %in% c('continuous', 'categorical')) {
+               if (first_trait_val %in% c('continuous', BINARY_TRAIT_TYPES, recursive=TRUE)) {
                  detected_trait_type <<- first_trait_val # Use <<- to modify outer scope variable
                  message(paste("  -> Detected trait_type as:", detected_trait_type))
                } else {
@@ -180,7 +182,7 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
              # Define required columns based on detected trait_type
              base_required_cols <- c("gene", "AF", "beta", "variant_variance")
              categorical_required_cols <- c("N", "AC_cases")
-             required_cols <- if (detected_trait_type == 'categorical') c(base_required_cols, categorical_required_cols) else base_required_cols
+             required_cols <- if (detected_trait_type %in% BINARY_TRAIT_TYPES) c(base_required_cols, categorical_required_cols) else base_required_cols
 
              if (!all(required_cols %in% names(data))) {
                  missing_cols <- setdiff(required_cols, names(data))
@@ -192,10 +194,9 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
              message(paste("  -> Read", nrow(data), "variants, assigned category:", functional_category_label))
 
              # Recalculate AF to ensure consistency with AC_cases > 0
-             data <- data %>% dplyr::mutate(AF = pmax(AF, AC_cases / (2*N), na.rm = TRUE))
-
-             # Coerce AC_cases to integer
-             data$AC_cases <- as.integer(data$AC_cases)
+             if (detected_trait_type %in% BINARY_TRAIT_TYPES) {
+                 data <- data %>% dplyr::mutate(AF = pmax(AF, AC_cases / (2*N), na.rm = TRUE))
+             }
 
              # --- Add AF Filtering --- #
              if (!is.null(frequency_range)) {
@@ -209,9 +210,9 @@ load_variant_files_with_category <- function(variant_dir, data_name, pheno, anno
              # -------------------------- #
 
              # --- Process based on detected trait_type --- #
-             if (detected_trait_type == 'categorical') {
+             if (detected_trait_type %in% BINARY_TRAIT_TYPES) {
                 data <- data %>%
-                    dplyr::mutate(expected_count = 2* N * AC_cases / (2*N)) %>%
+                    dplyr::mutate(expected_count = 2 * N * prevalence * AF) %>%
                     dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence")))
              } else { # Continuous
                 data <- data %>%

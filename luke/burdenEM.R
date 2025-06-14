@@ -36,14 +36,12 @@ fit_burdenem_model <- function(
         dnorm(row$effect_estimate, mean = beta_vec, sd = row$effect_se)
     },
     h2_function = function(beta, row) beta^2,
-    # base_component_endpoints = c(-1, -0.5, -0.2, -0.1, -0.05, -0.02),
     base_component_endpoints = c(-5, -1, -0.2,  -0.05),
-    # base_component_endpoints = c(-2, -1,  -0.5),
-    customize_components=FALSE
-
+    customize_components=FALSE,
+    drop_columns = c("effect_estimate", "effect_se")
 ) {
 
-    # --- 7. Initialize Grid-Based BurdenEM Model ---
+    # --- Initialize Grid-Based BurdenEM Model ---
     if(verbose) message("\n--- Initializing BurdenEM Model ---")
 
     # Define component endpoints based on per_allele_effects and data
@@ -77,19 +75,16 @@ fit_burdenem_model <- function(
         likelihood_fn = likelihood_function,
         component_endpoints = component_endpoints,
         h2_function = h2_function,
-        grid_points_per_component = burdenem_grid_size
+        grid_points_per_component = burdenem_grid_size,
+        drop_columns = drop_columns
     )
 
-    # --- 8. Fit Model using new EM ---
+    # --- Fit Model using new EM ---
     if(verbose) message("\n--- Running EM Fit (grid) ---")
 
     burdenem_model <- EM_fit_grid(burdenem_model, max_iter = num_iter)
 
-    if(verbose)message("EM fit complete:")
-
     burdenem_model$information <- information_matrices(burdenem_model)
-
-    if(verbose) message("Covariance computed.")
 
     return(burdenem_model)
 }

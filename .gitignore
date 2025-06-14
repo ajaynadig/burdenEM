@@ -14,3 +14,8 @@ old/*
 Python/__pycache__/*
 .windsurfrules
 R/.Rapp.history
+data/*
+figures/*
+tables/*
+luke_old/*
+*.sh

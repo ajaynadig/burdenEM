@@ -114,20 +114,21 @@ make_grid <- function(component_endpoints, grid_points_per_component) {
 #'     \item{h2_function}{Function. The provided heritability calculation function.}
 #'     \item{component_endpoints}{Numeric vector. The provided component endpoints.}
 #'     \item{null_index}{Integer. The index of the component corresponding to zero effect (endpoint = 0).}
+#'     \item{drop_columns}{List of column names to drop from the output data frame.}
 #'   }
 #' @export
 initialize_grid_model <- function(gene_data,
                                   likelihood_fn,
                                   component_endpoints,
                                   h2_function = function(beta, score) score * beta^2,
-                                  grid_points_per_component = 10) {
+                                  grid_points_per_component = 10,
+                                  drop_columns = c()) {
   # 1. Generate grid and component distributions
   grid_obj <- make_grid(component_endpoints, grid_points_per_component)
   grid_effects <- grid_obj$grid
   components <- grid_obj$components
-
-  # 2. Compute likelihood matrix: genes x grid
   n_genes <- nrow(gene_data)
+
   likelihood <- t(sapply(seq_len(n_genes), function(i) {
     likelihood_fn(gene_data[i, ], grid_effects)
   }))
@@ -146,7 +147,8 @@ initialize_grid_model <- function(gene_data,
   delta <- matrix(1/n_components, nrow = n_features, ncol = n_components)
 
   # 4. Build output DF with likelihood
-  df <- gene_data
+  df <- gene_data %>%
+    dplyr::select(-dplyr::any_of(drop_columns))
   df$likelihood <- likelihood
 
   # Index of null component

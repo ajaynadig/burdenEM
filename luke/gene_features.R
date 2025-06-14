@@ -40,7 +40,11 @@ get_bins <- function(gene_df, column_name = "lof_oe", num_bins = 5, verbose = TR
   quantile_breaks <- unique(stats::quantile(col_values, probs = seq(0, 1, length.out = num_bins + 1), na.rm = TRUE))
   num_actual_bins <- length(quantile_breaks) - 1
   bin_labels <- paste0(column_name, "_bin_", seq_len(num_actual_bins))
-  
+
+  if (verbose) {
+    message("Quantile breaks for '", column_name, "': ", paste(quantile_breaks, collapse = ", "))
+    # print(col_values)
+  }
   bins <- cut(col_values, breaks = quantile_breaks,
               labels = bin_labels, include.lowest = TRUE)
   

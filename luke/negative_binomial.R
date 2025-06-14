@@ -1,7 +1,7 @@
 library(glmmTMB)
 library(dplyr)
 
-estimate_overdispersion <- function(variant_data, intercept_frequency_bin_edges) {
+estimate_overdispersion <- function(variant_data, intercept_frequency_bin_edges, verbose = FALSE) {
   # Ensure required columns are present
   required_cols <- c("AC_cases", "expected_count", "AF", "gene")
   if (!all(required_cols %in% names(variant_data))) {
@@ -20,126 +20,147 @@ estimate_overdispersion <- function(variant_data, intercept_frequency_bin_edges)
     )
 
   # Add a small epsilon for stability if expected_count can be zero
-  epsilon <- 1e-10
+#   epsilon <- 1e-10
 
-  # Fit the negative binomial model with a single dispersion parameter
-  # Include 'gene' as a random intercept effect
-  model <- glmmTMB(
-    formula = AC_cases ~ offset(log(expected_count + epsilon)),
-    family = nbinom2,
-    dispformula = ~ 1, # Use a single dispersion parameter for all bins
-    data = variant_data
-  )
+#   # Fit the negative binomial model with a single dispersion parameter
+#   model <- glmmTMB(
+#     formula = AC_cases ~ offset(log(expected_count + epsilon)),
+#     family = nbinom2,
+#     dispformula = ~ 1, # Use a single dispersion parameter for all bins
+#     data = variant_data
+#   )
+#   k_value <- sigma(model)
+  
+#   # Calculate overdispersion alpha = 1/k
+#   overdispersion <- ifelse(k_value > 0, 1 / k_value, NA_real_)
+  
+#   # Check if overdispersion calculation resulted in NA
+#   if (is.na(overdispersion)) {
+#       stop("Overdispersion estimation failed or resulted in NA.")
+#   }
 
-  # Extract the estimated dispersion (k, the size parameter)
-  # sigma() returns the size parameter 'k' for nbinom2
-  # For a single dispersion parameter (~1), sigma returns a single value
-  k_value <- sigma(model)
-  
-  # Calculate overdispersion alpha = 1/k
-  # Handle potential division by zero or issues if k is not positive
-  overdispersion <- ifelse(k_value > 0, 1 / k_value, NA_real_)
-  
-  # Check if overdispersion calculation resulted in NA
-  if (is.na(overdispersion)) {
-      stop("Overdispersion estimation failed or resulted in NA.")
+  variant_data$overdispersion <- NA_real_
+  unique_freq_bins <- levels(variant_data$freq_bin)
+  for (current_bin_name in unique_freq_bins) {
+    in_bin <- variant_data$freq_bin == current_bin_name
+    beta <- mean(variant_data$AC_cases[in_bin] * variant_data$expected_count[in_bin]) / 
+            mean(variant_data$expected_count[in_bin]^2)
+    mu <- beta * variant_data$expected_count[in_bin]
+    residual <- (variant_data$AC_cases[in_bin] - mu)^2 - mu
+    overdispersion <- mean(residual * mu^2) / mean(mu^4)
+    
+    if (verbose) {
+        cat("Freq bin:", as.character(current_bin_name), "\n")
+        cat("  Calibration slope (beta) :", beta, "\n")
+        cat("  Moment-based overdispersion (alpha) before clamping at 0:", overdispersion, "\n")
+    }
+    overdispersion <- max(overdispersion, 0)
+    variant_data$overdispersion[in_bin] <- overdispersion
   }
-  
-  # Since we have only one overdispersion value, assign it to all variants
-  variant_data$overdispersion <- overdispersion
-  
-  return(variant_data)
+    
+    return(variant_data)
 }
 
-
-#' Calculate Negative Binomial Log-Likelihoods Across a Grid and Add to DataFrame
+#' Aggregate Variant Data to Gene-Level Lists
 #'
-#' Calculates the negative binomial log-likelihood for each variant across a grid
-#' of beta values (log odds ratio) and adds these likelihoods as columns to the
-#' input variant dataframe.
+#' Groups variant-level data by gene and functional category, and summarizes
+#' key columns (AC_cases, expected_count, overdispersion) into list-columns,
+#' where each element of the list is a vector of values for the variants in that gene.
+#' It also calculates n_variants and brings forward the first N and prevalence.
 #'
-#' @param variant_df A data frame containing variant-level data. Must include
-#'   columns: 'AC_cases', 'expected_count', 'overdispersion'.
-#' @param grid A numeric vector representing the grid of beta values (log ORs)
-#'   over which to calculate likelihoods.
-#'
-#' @return The input `variant_df` with additional columns corresponding to the
-#'   log-likelihood calculated for each beta value in the `grid`. Column names
-#'   will be structured like "LL_betaValue", e.g., "LL_-1.5".
-#' @importFrom stats dnbinom
-#' @export
-add_nbinom_likelihood <- function(variant_df, grid) {
+#' @param variant_data A data frame containing variant-level information.
+#'   Must include 'gene', 'functional_category', 'AC_cases', 'expected_count',
+#'   'overdispersion', 'N', and 'prevalence'.
+#' @param verbose Logical, if TRUE, prints progress messages.
+#' @return A data frame aggregated by gene and functional_category, with
+#'   list-columns for 'AC_cases', 'expected_count', 'overdispersion',
+#'   and columns for 'n_variants', 'N', 'prevalence'.
+aggregate_variants_to_gene_lists <- function(variant_data, verbose = FALSE) {
+  if (verbose) message("Aggregating variant data to gene-level lists...")
 
-    # --- Input Checks ---
-    required_cols <- c("AC_cases", "expected_count", "overdispersion")
-    missing_cols <- setdiff(required_cols, names(variant_df))
-    if (length(missing_cols) > 0) {
-        stop(paste("Missing required columns in variant_df:", paste(missing_cols, collapse=", ")))
-    }
-    if (!is.numeric(grid)) {
-        stop("'grid' must be a numeric vector.")
-    }
-    # Check for non-finite values in necessary input columns
-    # Allowing NaNs as per user preference, but Inf/-Inf in overdispersion/expected_count can be problematic
-    if(any(!is.finite(variant_df$overdispersion[!is.na(variant_df$overdispersion)]))) {
-        warning("Non-finite values detected in 'overdispersion'. This might lead to issues in likelihood calculation.")
-    }
-     if(any(!is.finite(variant_df$expected_count[!is.na(variant_df$expected_count)]))) {
-        warning("Non-finite values detected in 'expected_count'. This might lead to issues in likelihood calculation.")
-    }
+  required_cols <- c("gene", "functional_category", "AC_cases", "expected_count", "overdispersion", "N", "prevalence")
+  missing_cols <- setdiff(required_cols, names(variant_data))
+  if (length(missing_cols) > 0) {
+    stop(paste("variant_data is missing one or more required columns for list aggregation:",
+               paste(missing_cols, collapse = ", ")))
+  }
 
+  gene_level_data <- variant_data %>%
+    dplyr::group_by(gene, functional_category) %>%
+    dplyr::summarise(
+      AC_cases = list(AC_cases),
+      expected_count = list(expected_count),
+      overdispersion = list(overdispersion),
+      n_variants = dplyr::n(),
+      N = dplyr::first(N),
+      prevalence = dplyr::first(prevalence), # Assumes prevalence is constant
+      burden_score = sum(variant_variance),
+      .groups = 'drop'
+    ) %>%
+    dplyr::filter(!is.na(gene)) %>%
+    dplyr::mutate(
+      CAC_cases = sapply(AC_cases, function(x) sum(unlist(x))),
+      expected_CAC_cases = sapply(expected_count, function(x) sum(unlist(x)))
+    )
 
-    # --- Helper function to calculate LL for one beta value (vectorized over variants) ---
-    log_likelihood_variant_beta <- function(beta_val, expected_count_vec, AC_cases_vec, overdispersion_vec) {
-        # Calculate theta (size parameter for dnbinom) from overdispersion
-        # Handle overdispersion <= 0 (theta -> Inf, approaches Poisson)
-        theta_vec <- ifelse(overdispersion_vec <= 0 | !is.finite(overdispersion_vec), Inf, 1 / overdispersion_vec)
-
-        # Calculate mu (mean parameter for dnbinom)
-        mu_vec <- expected_count_vec * exp(beta_val)
-
-        # Calculate log-likelihood using dnbinom (vectorized)
-        # Ensure inputs to dnbinom are valid
-        # Negative mu can occur if expected_count is negative, which shouldn't happen but check.
-        # size (theta) must be positive. Our ifelse handles the zero case -> Inf.
-        if(any(expected_count_vec < 0, na.rm=TRUE)) {
-            warning("Negative values detected in 'expected_count'. This will likely cause errors in dnbinom.")
-        }
-
-        ll <- stats::dnbinom(AC_cases_vec, mu = mu_vec, size = theta_vec, log = TRUE)
-
-        # dnbinom returns -Inf for log=TRUE if probability is 0.
-        # It can return NaN if inputs are invalid (e.g., negative size, negative mu depending on implementation).
-        # No specific replacement needed here, let R handle standard numeric results.
-        return(ll)
-    }
-
-    # --- Apply across the grid ---
-    # sapply iterates through each beta value in 'grid'
-    # For each beta, it calls log_likelihood_variant_beta, passing the *vectors* from variant_df
-    # The result is a matrix: rows = variants, cols = grid points
-    message(paste("Calculating likelihoods for", nrow(variant_df), "variants across", length(grid), "grid points..."))
-    likelihood_matrix <- sapply(grid, function(beta_val) {
-        log_likelihood_variant_beta(
-            beta_val = beta_val,
-            expected_count_vec = variant_df$expected_count,
-            AC_cases_vec = variant_df$AC_cases,
-            overdispersion_vec = variant_df$overdispersion
-        )
-    }) # Result is variants x grid_points matrix
-
-    # --- Combine with input dataframe ---
-    # Create informative column names for the likelihood matrix
-    colnames(likelihood_matrix) <- paste0("LL_", format(grid, digits=3, scientific=FALSE)) # e.g., LL_-1.500, LL_0.000, LL_1.500
-
-    # Check row count match before cbind
-    if (nrow(variant_df) != nrow(likelihood_matrix)) {
-        stop("Internal error: Row count mismatch between variant data and calculated likelihood matrix.")
-    }
-
-    # Combine the original dataframe with the new likelihood columns
-    variant_df_with_ll <- cbind(variant_df, likelihood_matrix)
-
-    message("Likelihood columns added to the dataframe.")
-    return(variant_df_with_ll)
+  if (verbose) message(paste("Aggregated to", nrow(gene_level_data), "gene-category rows with list-columns."))
+  return(gene_level_data)
 }
+
+#' Calculate Gene-Level Likelihoods for Negative Binomial Model
+#'
+#' Calculates the sum of negative binomial log-likelihoods for all variants in a gene
+#' across a grid of effect sizes (beta_vec).
+#' This function is designed to be used as the `likelihood_fn` in `fit_burdenem_model`.
+#'
+#' @param gene_data_row A single row from the gene-level data frame. Expected to have
+#'   list-columns: `AC_cases` (list of allele counts in cases for variants in the gene),
+#'   `expected_count` (list of expected counts for variants in the gene under H0),
+#'   `overdispersion` (list of overdispersion parameters for variants in the gene).
+#' @param beta_vec A numeric vector of effect sizes (log rate ratios) to evaluate.
+#' @return A numeric vector of total actual likelihoods (sum of variant likelihoods, exponentiated)
+#'   for the gene, one for each value in `beta_vec`.
+gene_likelihood <- function(gene_data_row, beta_vec) {
+  # Extract lists from the gene_data_row
+  ac_cases <- gene_data_row$AC_cases[[1]]
+  ac_expected <- gene_data_row$expected_count[[1]]
+  overdispersion <- gene_data_row$overdispersion[[1]]
+
+  # Calculate sum of log-likelihoods for each beta
+  total_sum_log_likelihood_per_beta <- sapply(beta_vec, function(current_beta) {
+    mu <- ac_expected * exp(current_beta)
+    theta <- ifelse(overdispersion <= 0 | !is.finite(overdispersion), Inf, 1 / overdispersion)
+
+    log_likelihoods_for_variants <- stats::dnbinom(
+      x = ac_cases,
+      mu = mu,
+      size = theta,
+      log = TRUE
+    )
+    # Return the sum of log-likelihoods for this beta
+    sum(log_likelihoods_for_variants, na.rm = TRUE) 
+  })
+
+  # Normalize to prevent underflow/overflow before exponentiating
+  max_log_likelihood <- max(total_sum_log_likelihood_per_beta, na.rm = TRUE)
+
+  # If max_log_likelihood is -Inf (all log-likelihoods were -Inf or NA),
+  # then all exponentiated likelihoods will be 0.
+  # If max_log_likelihood is NA (e.g. all inputs to max were NA), result will be NA vector.
+  if (is.na(max_log_likelihood) || !is.finite(max_log_likelihood)) {
+    # If max is -Inf, exp(-Inf - (-Inf)) is NaN, should be 0.
+    # If max is NA, exp(NA - NA) is NA.
+    if (identical(max_log_likelihood, -Inf)) {
+        return(rep(0, length(total_sum_log_likelihood_per_beta)))
+    } else {
+        # This will correctly produce a vector of NAs if max_log_likelihood was NA
+        return(exp(total_sum_log_likelihood_per_beta - max_log_likelihood)) 
+    }
+  }
+
+  normalized_log_likelihoods <- total_sum_log_likelihood_per_beta - max_log_likelihood
+  final_likelihoods <- exp(normalized_log_likelihoods)
+  
+  return(final_likelihoods)
+}
+

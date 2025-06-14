@@ -125,7 +125,8 @@ def get_burden_score(matrices: List[sparse.spmatrix],
         for matrix_snplist, annot_snplist in zip(matrix_snplists, annot_snplists)
     ]
     
-    burden_scores = []
+    corrected_scores = []
+    uncorrected_scores = []
     for ld_mat, snplist in zip(matrices, merged_snplists):
         # Drop variants from the LD matrix that didn't merge with the annotation data
         idx_into_matrix = snplist.filter('missing_mask', 'AF_mask').select('matrix_index').to_numpy().flatten()
@@ -139,13 +140,16 @@ def get_burden_score(matrices: List[sparse.spmatrix],
                           indices=idx_into_merged,
                           shape=(n, n))
         
-        result = {}
+        corrected = {}
+        uncorrected = {}
         for annot_name in annot_names:
             af_or_0 = snplist.with_columns(
                 (pl.col(annot_af_name) * (pl.col("annotation") == annot_name).fill_null(False)).alias(annot_name)
             ).select(annot_name).to_numpy().flatten()
             weights = np.sqrt(2 * af_or_0 * (1-af_or_0)).ravel()
-            result[annot_name] = np.dot(weights, operator @ weights)
-        burden_scores.append(result)
+            corrected[annot_name] = np.dot(weights, operator @ weights)
+            uncorrected[annot_name] = np.dot(weights, weights)
+        corrected_scores.append(corrected)
+        uncorrected_scores.append(uncorrected)
 
-    return burden_scores
+    return corrected_scores, uncorrected_scores

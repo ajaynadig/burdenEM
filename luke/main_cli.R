@@ -6,94 +6,183 @@
 source("luke/main.R")
 
 # Only run the CLI code if this script is executed directly
-if (!interactive() && identical(commandArgs(trailingOnly = FALSE)[1], "--file=luke/main_cli.R")) {
-    message("--- Parsing Command Line Arguments ---")
+message("Parsing Command Line Arguments")
 
-    # Check/install optparse
-    if (!requireNamespace("optparse", quietly = TRUE)) {
-        message("Installing 'optparse' package...")
-        install.packages("optparse", repos = "http://cran.us.r-project.org")
+# Check/install optparse
+if (!requireNamespace("optparse", quietly = TRUE)) {
+    message("Installing 'optparse' package...")
+    install.packages("optparse", repos = "http://cran.us.r-project.org")
+}
+library(optparse)
+
+# Check/install future
+if (!requireNamespace("future", quietly = TRUE)) {
+    message("Installing 'future' package...")
+    install.packages("future", repos = "http://cran.us.r-project.org")
+}
+library(future)
+
+# Check/install furrr
+if (!requireNamespace("furrr", quietly = TRUE)) {
+    message("Installing 'furrr' package...")
+    install.packages("furrr", repos = "http://cran.us.r-project.org")
+}
+library(furrr)
+
+# Check/install purrr (for sequential map, though often a dependency of furrr/dplyr)
+if (!requireNamespace("purrr", quietly = TRUE)) {
+    message("Installing 'purrr' package...")
+    install.packages("purrr", repos = "http://cran.us.r-project.org")
+}
+library(purrr)
+
+library(readr) # For reading the studies TSV
+library(stringr) # For string manipulations
+
+option_list = list(
+    make_option(c("-a", "--annotation"), type="character", default=NULL, 
+        help="Single functional annotation category to process (e.g., 'pLoF', 'missense', 'synonymous') [required]", metavar="character"),
+    make_option(c("-f", "--feature_col_name"), type="character", default=NULL, 
+        help="Optional: Name of the column in the genes file for gene features (e.g., 'oe_lof')", metavar="character"),
+    make_option(c("-b", "--num_feature_bins"), type="integer", default=5, 
+        help="Number of bins for feature column [default %default].", metavar="integer"),
+    make_option(c("-g", "--genes_file"), type="character", default=NULL, 
+        help="Path to the genes file template (use <ANNOTATION>, <LOWER>, and <UPPER> placeholders) [required].", metavar="character"),
+    
+    make_option(c("-i", "--num_iter"), type="integer", default=10000, 
+        help="Number of EM iterations [default %default].", metavar="integer"),
+    make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
+        help="Calculate per-allele effect sizes instead of per-gene. [default: %default]"),
+    make_option(c("--correct_for_ld"), action="store_true", default=FALSE, dest="correct_for_ld",
+        help="Apply LD correction to burden scores and gamma."),
+    make_option(c("--frequency_range"), type="character", default="0,0.001", help="Comma-separated min,max for allele frequency range (e.g., '0,0.001'). Default: %default"),
+    make_option(c("-v", "--verbose"), action="store_true", default=FALSE, help="Print extra details during execution."),
+    make_option(c("--no_parallel"), action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially)."),
+    make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,1e-5,1e-4,1e-3",
+        help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character")
+)
+
+opt_parser = OptionParser(option_list=option_list, usage = "%prog [options] studies_file")
+opt_parsed = parse_args(opt_parser, positional_arguments = TRUE)
+opt = opt_parsed$options
+
+# Check required arguments
+if (length(opt_parsed$args) == 0 || is.null(opt_parsed$args[1])) {
+    print_help(opt_parser)
+    stop("A studies_file positional argument must be provided.", call.=FALSE)
+}
+studies_file_path <- opt_parsed$args[1]
+
+if (is.null(opt$annotation) || is.null(opt$genes_file)) {
+    print_help(opt_parser)
+    stop("Annotation (--annotation), and genes file (--genes_file) must be specified.", call.=FALSE)
+}
+
+# Parse frequency ranges from CLI - these will be applied to all studies
+frequency_range_cli <- as.numeric(strsplit(opt$frequency_range, ",")[[1]])
+intercept_frequency_bin_edges_cli <- as.numeric(strsplit(opt$intercept_frequency_bin_edges, ",")[[1]])
+
+# Read the studies file
+studies_df <- readr::read_tsv(studies_file_path, show_col_types = FALSE)
+
+# Worker function to process a single study
+process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_bins_cli) {
+    current_study <- study_row
+
+    # --- 1. Sumstats path handling ---
+    sumstats_pattern_template <- current_study$sumstats_filename_pattern
+    full_sumstats_pattern_with_anno <- stringr::str_replace(sumstats_pattern_template, "<ANNOTATION>", opt_config$annotation)
+    
+    derived_variant_dir <- dirname(full_sumstats_pattern_with_anno)
+    derived_variant_file_pattern <- basename(full_sumstats_pattern_with_anno)
+
+    # --- 2. Genes file handling ---
+    genes_file_template <- opt_config$genes_file
+    processed_genes_file <- stringr::str_replace(genes_file_template, "<DATASET>", current_study$dataset)
+
+    # --- 3. Model output path handling ---
+    model_output_path_template <- current_study$model_filename
+    model_output_path_with_anno <- stringr::str_replace(model_output_path_template, "<ANNOTATION>", opt_config$annotation)
+    
+    model_output_dir <- dirname(model_output_path_with_anno)
+    if (!dir.exists(model_output_dir)) {
+        dir.create(model_output_dir, recursive = TRUE)
+        if(opt_config$verbose) message(paste("Created model output directory:", model_output_dir, "for study:", current_study$identifier))
     }
-    library(optparse)
+    output_file_prefix_for_run <- tools::file_path_sans_ext(model_output_path_with_anno)
 
-    option_list = list(
-        make_option(c("-p","--pheno"), type="character", default=NULL, 
-            help="Phenotype name (e.g., '50_NA', '20002_diabetes') [required]", metavar="character"),
-        make_option(c("-a", "--annotation_to_process"), type="character", default=NULL, 
-            help="Single functional annotation category to process (e.g., 'pLoF', 'missense', 'synonymous') [required]", metavar="character"),
-        make_option(c("-f", "--feature_col_name"), type="character", default=NULL, 
-            help="Optional: Name of the column in LD-scores file for gene features (e.g., 'oe_lof')", metavar="character"),
-        make_option(c("-b", "--num_feature_bins"), type="integer", default=5, 
-            help="Number of bins for feature column [default %default].", metavar="integer"),
-        make_option(c("-v", "--variant_dir"), type="character", 
-            default=file.path(TOP_LEVEL_DATA_DIR, "data", "genebass", "var_txt"), 
-            help="Directory containing variant files [default %default]", metavar="character"),
-        make_option(c("-l", "--ld_scores_file"), type="character", 
-            default=file.path(TOP_LEVEL_DATA_DIR, "data", "utility", "ukbb_ld_corrected_burden_scores_<ANNOTATION>_<LOWER>_<UPPER>.tsv"),
-            help="Path to LD-corrected burden scores file template (use <ANNOTATION> placeholder) [default %default].", metavar="character"),
-        make_option(c("-o", "--output_dir"), type="character", default="./burdenEM_example_output", 
-            help="Output directory for results [default %default].", metavar="character"),
-        make_option(c("-d", "--data_name"), type="character", default="genebass", 
-            help="Dataset name prefix (e.g., 'genebass') [default %default].", metavar="character"),
-        make_option(c("-c", "--burdenem_no_cpts"), type="integer", default=10, 
-            help="Number of components for BurdenEM [default %default].", metavar="integer"),
-        make_option(c("-i", "--num_iter"), type="integer", default=1000, 
-            help="Number of EM iterations [default %default].", metavar="integer"),
-        make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
-            help="Calculate per-allele effect sizes instead of per-gene. [default: %default]"),
-        make_option(c("--correct_for_ld"), action="store_true", default=FALSE, dest="correct_for_ld",
-            help="Apply LD correction to burden scores and gamma."),
-        make_option(c("--correct_genomewide"), action="store_true", default=FALSE, 
-                    help="Apply genome-wide burden correction after variant-to-gene processing [default %default]"),
-        make_option(c("-q", "--quiet"), action="store_false", default=TRUE, dest="verbose",
-            help="Suppress verbose messages."),
-        make_option(c("--frequency_range"), type="character", default="0,0.001",
-            help="Comma-separated string for AF range filter [min,max) (e.g., '0,0.001')", metavar="character"),
-        make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,1e-5,1e-4,1e-3",
-            help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character")
-    )
-
-    opt_parser = OptionParser(option_list=option_list)
-    opt = parse_args(opt_parser)
-
-    # Check required arguments
-    if (is.null(opt$pheno) || is.null(opt$annotation_to_process)) {
-        print_help(opt_parser)
-        stop("Phenotype (--pheno) and annotation (--annotation_to_process) must be specified.", call.=FALSE)
-    }
-
-    # Parse frequency ranges
-    frequency_range <- as.numeric(strsplit(opt$frequency_range, ",")[[1]])
-    intercept_frequency_bin_edges <- as.numeric(strsplit(opt$intercept_frequency_bin_edges, ",")[[1]])
-
-    # Create output directory if it doesn't exist
-    if (!dir.exists(opt$output_dir)) {
-        dir.create(opt$output_dir, recursive = TRUE)
-    }
-
-    # Prepare arguments for run_burdenEM_rvas
+    # --- 4. Prepare arguments for run_burdenEM_rvas for the current study ---
     run_args <- list(
-        variant_dir = opt$variant_dir,
-        ld_corrected_scores_file = opt$ld_scores_file,
-        data_name = opt$data_name,
-        pheno = opt$pheno,
-        annotation_to_process = opt$annotation_to_process,
-        feature_col_name = opt$feature_col_name,
-        num_feature_bins = opt$num_feature_bins,
-        burdenem_no_cpts = opt$burdenem_no_cpts,
-        num_iter = opt$num_iter,
-        per_allele_effects = opt$per_allele_effects,
-        correct_for_ld = opt$correct_for_ld,
-        correct_genomewide = opt$correct_genomewide,
-        verbose = opt$verbose,
-        frequency_range = frequency_range,
-        intercept_frequency_bin_edges = intercept_frequency_bin_edges,
-        output_dir = opt$output_dir
+        variant_dir = derived_variant_dir,
+        variant_file_pattern = derived_variant_file_pattern,
+        ld_corrected_scores_file = processed_genes_file,
+        output_file_prefix = output_file_prefix_for_run,
+        annotation_to_process = opt_config$annotation,
+        feature_col_name = opt_config$feature_col_name,
+        num_feature_bins = opt_config$num_feature_bins,
+        num_iter = opt_config$num_iter,
+        per_allele_effects = opt_config$per_allele_effects,
+        correct_for_ld = opt_config$correct_for_ld,
+        frequency_range = freq_range_cli, 
+        intercept_frequency_bin_edges = icept_freq_bins_cli,
+        verbose = opt_config$verbose
     )
 
-    # Remove NULL values from the arguments
     run_args <- run_args[!sapply(run_args, is.null)]
 
-    # Run the main function
+    main_message <- paste0("Processing: ", current_study$identifier, " (", current_study$dataset, ") [", opt_config$annotation, "]")
+    if(opt_config$verbose) {
+        main_message <- paste0("Running BurdenEM for: ", current_study$identifier, " (", current_study$dataset, ") with annotation: ", opt_config$annotation, 
+                           ". Output prefix: ", output_file_prefix_for_run)
+    }
+    message(main_message)
     do.call(run_burdenEM_rvas, run_args)
+    # tryCatch({
+    #     do.call(run_burdenEM_rvas, run_args)
+    #     if(opt_config$verbose || !opt$no_parallel) { # Also print completion if parallel to confirm it finished
+    #          message(paste0("Completed: ", current_study$identifier, " (", current_study$dataset, ")"))
+    #     }
+    # }, error = function(e) {
+    #     message(paste0("ERROR processing study ", current_study$identifier, " (", current_study$dataset, "): ", e$message))
+    # })
+    return(NULL) 
 }
+
+# Main loop to process each study defined in the TSV file
+message(paste("Processing", nrow(studies_df), "studies from:", studies_file_path))
+
+if (!opt$no_parallel && nrow(studies_df) > 1) {
+    # Determine number of workers for future_map
+    # future::availableCores() gives logical cores, future::availableCores(logical=FALSE) gives physical
+    # Using availableCores() (logical) is often a good default for multisession
+    num_workers <- future::availableCores()
+    if (is.na(num_workers) || num_workers <= 1) {
+        message("Only one core detected or available. Running sequentially.")
+        # Fallback to sequential execution
+        purrr::map(1:nrow(studies_df), 
+                   ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli))
+    } else {
+        message(paste("Setting up parallel execution using up to", num_workers, "workers for", nrow(studies_df), "studies."))
+        future::plan(future::multisession, workers = num_workers) # Explicitly set workers
+        
+        # furrr::future_map iterates over elements, so we pass indices or rows
+        # Passing indices and subsetting inside .f is common
+        results_list <- furrr::future_map(
+            .x = 1:nrow(studies_df), 
+            .f = ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli),
+            .progress = opt$verbose, # Show progress bar if verbose
+            .options = furrr_options(seed = TRUE) # Ensure reproducibility if any RNG is used in worker
+        )
+        message("Parallel processing finished.")
+        # Reset future plan to default (sequential) after use, if desired, or leave as is for potential subsequent parallel operations
+        # future::plan(future::sequential) 
+    }
+} else {
+    if (nrow(studies_df) <= 1 && !opt$no_parallel) message("Only one study to process, running sequentially.")
+    else message("Running in sequential mode (--no_parallel specified or only one study/core).")
+    
+    purrr::map(1:nrow(studies_df), 
+               ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli))
+}
+
+message("All studies processed.")

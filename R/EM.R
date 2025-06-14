@@ -44,11 +44,8 @@ EM_fit <- function(model,
 
 # --- New function: EM for grid-based models ---
 EM_fit_grid <- function(model, max_iter = 1000) {
+  print(paste("Running EM fit for grid-based model with max_iter = ", max_iter))
   features <- do.call(rbind, model$df$features)
-  print(paste0("likelihood: ", dim(model$df$likelihood)))
-  print(paste0("components: ", dim(model$components)))
-  print(paste0("features: ", dim(features)))
-  print(paste0("delta: ", dim(model$delta)))
   cdl <- model$df$likelihood %*% t(model$components)
   XtX_inv <- solve(t(features) %*% features)
   delta <- model$delta
