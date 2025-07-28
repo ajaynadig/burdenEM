@@ -142,6 +142,20 @@ meta_analyze_polygenicity <- function(true_results_df, estimated_results_df) {
   # Merge the two summaries
   merged_results <- dplyr::full_join(true_summary, estimated_summary, by = "abbreviation")
 
+  # Reorder columns to have true and estimated values next to each other
+  base_metrics <- names(polygenicity_functions)
+  ordered_cols <- c("abbreviation")
+  for (metric in base_metrics) {
+    ordered_cols <- c(ordered_cols, 
+                      paste0(metric, "_mean_log10.true"),
+                      paste0(metric, "_mean_log10.estimated"),
+                      paste0(metric, "_rms_log10_se.estimated"))
+  }
+  
+  # Select only the columns that actually exist in the merged data
+  ordered_cols <- ordered_cols[ordered_cols %in% names(merged_results)]
+  merged_results <- merged_results[, ordered_cols]
+
   # Ensure original order of abbreviations from the 'true' set is preserved
   if (nrow(true_results_df) > 0 && "abbreviation" %in% names(true_results_df)) {
     ordered_abbreviations <- unique(as.character(true_results_df$abbreviation))

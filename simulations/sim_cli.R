@@ -246,6 +246,38 @@ main <- function(args) {
     meta_output_filepath <- file.path(output_dir, meta_output_filename)
     fwrite(meta_results_df, meta_output_filepath, sep = "\t")
     cat(paste("Meta-analyzed results saved to:", meta_output_filepath, "\n"))
+  } else if (command == "calibration") {
+    # --- Calculate calibration metrics ---
+    cat("--- Calculating calibration metrics ---\n")
+    source(file.path(script_dir, "sim_calibration.R"))
+
+    calibration_df <- calculate_calibration_metrics_for_studies(
+      studies_df = studies_df,
+      annotation_param = args$annotation,
+      verbose_param = TRUE,
+      run_sequentially_param = args$no_parallel,
+      per_allele_effects = args$per_allele_effects
+    )
+
+    if (nrow(calibration_df) > 0) {
+      if ("abbreviation" %in% names(calibration_df)) {
+        calibration_df <- calibration_df %>% dplyr::select(abbreviation, dplyr::everything())
+      }
+      calib_output_filename <- sprintf("%s.calibration.tsv", studies_file_prefix)
+      calib_output_filepath <- file.path(output_dir, calib_output_filename)
+      fwrite(calibration_df, calib_output_filepath, sep = "\t")
+      cat(paste("Calibration results saved to:", calib_output_filepath, "\n"))
+
+      # --- Meta-analyze and save ---
+      cat("\n--- Meta-analyzing calibration results ---\n")
+      meta_calibration_df <- meta_analyze_calibration(calibration_df)
+      meta_output_filename <- sprintf("%s.meta.calibration.tsv", studies_file_prefix)
+      meta_output_filepath <- file.path(output_dir, meta_output_filename)
+      fwrite(meta_calibration_df, meta_output_filepath, sep = "\t")
+      cat(paste("Meta-analyzed calibration results saved to:", meta_output_filepath, "\n"))
+    } else {
+      cat("No calibration results generated.\n")
+    }
   }
 }
 
@@ -266,6 +298,13 @@ parser_distribution <- subparsers$add_parser("distribution", help = "Calculate t
 parser_distribution$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
 parser_distribution$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation to use for estimated distribution calculation (e.g., pLoF).")
 parser_distribution$add_argument("--no_parallel", action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially).")
+
+# Calibration subcommand
+parser_calibration <- subparsers$add_parser("calibration", help = "Calculate calibration of posterior-mean effects.")
+parser_calibration$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
+parser_calibration$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation used when loading fitted models (e.g., pLoF).")
+parser_calibration$add_argument("--no_parallel", action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially).")
+parser_calibration$add_argument("--per_allele_effects", action="store_true", default=FALSE, help="Convert effect sizes to per-allele (e.g., beta -> beta/variant_variance).")
 
 args <- parser$parse_args()
 

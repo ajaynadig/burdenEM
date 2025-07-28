@@ -116,5 +116,15 @@ meta_analyze_heritability <- function(true_results_df, estimated_results_df) {
       .groups = "drop"
     )
   
+  # Ensure original order of abbreviations from the 'true' set is preserved
+  if (nrow(true_results_df) > 0 && "abbreviation" %in% names(true_results_df)) {
+    ordered_abbreviations <- unique(as.character(true_results_df$abbreviation))
+    summary_df$abbreviation <- as.character(summary_df$abbreviation)
+    
+    summary_df <- summary_df[match(ordered_abbreviations, summary_df$abbreviation), ]
+    # Remove any all-NA rows that might have been introduced by match if an abbreviation was missing
+    summary_df <- summary_df[rowSums(is.na(summary_df)) < (ncol(summary_df) -1), ] # -1 for abbreviation col
+  }
+  
   return(summary_df)
 }
