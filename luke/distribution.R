@@ -62,10 +62,8 @@ process_single_study_for_distribution <- function(study_row, current_annotation,
   processed_data <- tryCatch({
     if (current_verbose) message(sprintf("  Calculating distribution metrics for %s", trait_name_from_df))
 
-    gene_cdf <- get_gene_cdf_betasq(model, right_tail=TRUE)
     gene_qf <- get_gene_qf_betasq(model, right_tail=TRUE)
     variance_cdf <- get_variance_cdf_betasq(model, right_tail=TRUE)
-    # variance_qf <- get_variance_qf_betasq(model, right_tail=TRUE) # Not directly used in points
 
     needed_genes_calculator <- get_needed_genes_fn(model)
     test_heritability_proportions <- c(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99, 0.999)

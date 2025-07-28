@@ -214,6 +214,9 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
                 data <- data %>%
                     dplyr::mutate(expected_count = 2 * N * prevalence * AF) %>%
                     dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence")))
+                  
+                message("Expected over observed AC_cases: ", mean(data$AC_cases)/mean(data$expected_count))
+
              } else { # Continuous
                 data <- data %>%
                     dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Select final columns
