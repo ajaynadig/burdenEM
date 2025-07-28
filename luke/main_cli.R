@@ -48,7 +48,8 @@ option_list = list(
         help="Number of bins for feature column [default %default].", metavar="integer"),
     make_option(c("-g", "--genes_file"), type="character", default=NULL, 
         help="Path to the genes file template (use <ANNOTATION>, <LOWER>, and <UPPER> placeholders) [required].", metavar="character"),
-    
+    make_option(c("-c", "--num_positive_components"), type="integer", default=10, 
+        help="Number of positive components for BurdenEM [default %default].", metavar="integer"),
     make_option(c("-i", "--num_iter"), type="integer", default=10000, 
         help="Number of EM iterations [default %default].", metavar="integer"),
     make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
@@ -120,6 +121,7 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
         annotation_to_process = opt_config$annotation,
         feature_col_name = opt_config$feature_col_name,
         num_feature_bins = opt_config$num_feature_bins,
+        num_positive_components = opt_config$num_positive_components,
         num_iter = opt_config$num_iter,
         per_allele_effects = opt_config$per_allele_effects,
         correct_for_ld = opt_config$correct_for_ld,

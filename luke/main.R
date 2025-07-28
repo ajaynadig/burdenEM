@@ -38,12 +38,9 @@ source("luke/negative_binomial.R") # Source for estimate_overdispersion, aggrega
 #' @param intercept_frequency_bin_edges Numeric vector defining AF bin edges, only for intercept calculation.
 #' @param feature_col_name Optional string: name of the column in the LD-corrected scores file to use for gene features (e.g., "lof_oe"). Default: NULL.
 #' @param num_feature_bins Integer: number of quantile bins for the feature column. Default: 5.
-#' @param burdenem_no_cpts Number of components for BurdenEM.
+#' @param num_positive_components: Number of positive components for BurdenEM; total number is 2*num_positive_components + 1.
 #' @param burdenem_grid_size Grid size for likelihood calculation.
 #' @param num_iter Number of iterations for EM algorithm.
-#' @param bootstrap Logical, whether to perform bootstrapping.
-#' @param n_boot Number of bootstrap samples if bootstrap=TRUE.
-#' @param output_dir Directory to save the fitted model.
 #' @param verbose Logical, whether to print detailed messages.
 #' @param frequency_range Numeric vector c(min, max) for AF range filter [min,max). Default: c(0, 0.001).
 #' @param per_allele_effects Logical, whether to calculate per-allele effect sizes instead of per-gene. Default: FALSE.
@@ -61,11 +58,10 @@ run_burdenEM_rvas <- function(
     frequency_range = c(0, 0.001),
     feature_col_name = "lof.oe",
     num_feature_bins = 5,
-    burdenem_no_cpts = 10, # TODO
+    num_positive_components = 10,
     burdenem_grid_size = 100,
     num_iter = 10000,
     bootstrap = TRUE,
-    n_boot = 100,
     output_file_prefix = NULL, # CLI provides the full path prefix for output files
     verbose = FALSE,
     per_allele_effects = FALSE,
@@ -90,6 +86,7 @@ run_burdenEM_rvas <- function(
     is_binary <- all(required_binary_cols %in% names(variant_data))
     trait_type <- if(is_binary) "binary" else "continuous"
     message(paste("Detected trait type:", trait_type))
+
 
     # --- 2. Load LD-Corrected Burden Scores ---
     if(!is.null(ld_corrected_scores_file)){ # Do not change this to 'if correct_for_ld'
@@ -164,7 +161,7 @@ run_burdenEM_rvas <- function(
     # --- 6. Prepare Gene Features & Add to Gene Data ---
     # This step uses the output 'gene_level_data' from step 3/4, independent of trait type
     # It adds the 'features' column based on 'feature_col_name'
-    if (!is.null(feature_col_name)) {
+    if (!is.null(feature_col_name) && num_feature_bins > 1) {
         if (verbose) message(paste("\n--- Generating", num_feature_bins, "feature bins for:", feature_col_name, "---"))
         if (!(feature_col_name %in% names(gene_level_data))){
              stop(paste("Specified feature_col_name '", feature_col_name, "' not found in gene_level_data after aggregation.", sep=""))
@@ -240,8 +237,9 @@ run_burdenEM_rvas <- function(
     burdenem_model <- fit_burdenem_model(
         gene_level_data = gene_level_data,
         likelihood_function = likelihood_function,
-        h2_function = current_h2_function, # Pass the selected h2 function
+        h2_function = current_h2_function,
         burdenem_grid_size = burdenem_grid_size,
+        num_positive_components = num_positive_components,
         num_iter = num_iter,
         per_allele_effects = per_allele_effects, 
         drop_columns = current_drop_columns, 
@@ -250,6 +248,8 @@ run_burdenEM_rvas <- function(
     burdenem_model$pval_function <- pval_function
     burdenem_model$get_power_function <- get_power_function
     burdenem_model$rel_samplesize_function <- rel_samplesize_function
+
+    if(verbose) print(burdenem_model$delta)
 
     # --- 8. Save Model & Data ---
     if(verbose) message("\n--- Saving Model & Data ---")

@@ -7,6 +7,17 @@
 # source("R/model.R")
 # source("R/EM.R")
 
+choose_model_endpoints <- function(num_positive_components, 
+                                    num_genes, 
+                                    min_relevant_h2=0.01,
+                                    max_gene_h2=0.1){
+    smallest_positive_endpt = sqrt(min_relevant_h2/num_genes)
+    largest_positive_endpt = sqrt(max_gene_h2)
+    positive_endpts = exp(seq(log(smallest_positive_endpt), log(largest_positive_endpt), length.out = num_positive_components))
+    # positive_endpts = c(.1, .2, .5, 1, 2, 5)
+    return (c(-rev(positive_endpts), 0, positive_endpts))
+}
+
 #' Fit BurdenEM Model (Grid-Based)
 #'
 #' Prepares features, initializes, and fits the grid-based BurdenEM model.
@@ -36,8 +47,7 @@ fit_burdenem_model <- function(
         dnorm(row$effect_estimate, mean = beta_vec, sd = row$effect_se)
     },
     h2_function = function(beta, row) beta^2,
-    base_component_endpoints = c(-5, -1, -0.2,  -0.05),
-    customize_components=FALSE,
+    num_positive_components = 10,
     drop_columns = c("effect_estimate", "effect_se")
 ) {
 
@@ -45,23 +55,13 @@ fit_burdenem_model <- function(
     if(verbose) message("\n--- Initializing BurdenEM Model ---")
 
     # Define component endpoints based on per_allele_effects and data
-    if(customize_components){
-      lower_bound = unlist(quantile(gene_level_data$gamma_per_sd, probs = c(0.001)))
-      upper_bound = unlist(quantile(gene_level_data$gamma_per_sd, probs = c(0.999)))
-      bound = max(abs(min(gene_level_data$gamma_per_sd)), abs(max(gene_level_data$gamma_per_sd)))
-      component_endpoints1 = c(-bound,
-                               seq(lower_bound, upper_bound, length.out = (burdenem_no_cpts/2)),
-                               bound)
-      component_endpoints2 = seq(-bound, bound, length.out = burdenem_no_cpts/2)
-      component_endpoints2[which(component_endpoints2 == 0)] = 1e-300
-      component_endpoints <- sort(unique(c(component_endpoints1, component_endpoints2)))
-    }else{
-      component_endpoints <- c(base_component_endpoints, 0, -rev(base_component_endpoints))
-    }
-
-    if(!per_allele_effects){
+    component_endpoints <- choose_model_endpoints(num_positive_components, 
+                                                  num_genes = nrow(gene_level_data), 
+                                                  min_relevant_h2=0.001,
+                                                  max_gene_h2=0.1)
+    if(per_allele_effects){
         burden_score_mean <- mean(gene_level_data$burden_score, na.rm = TRUE)
-        component_endpoints <- component_endpoints * sqrt(burden_score_mean)
+        component_endpoints <- component_endpoints / sqrt(burden_score_mean)
     }
     if(verbose) { message("Component endpoints:"); print(component_endpoints) }
 
