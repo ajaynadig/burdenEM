@@ -5,33 +5,17 @@ library(dplyr)
 library(stringr)
 
 # --- Helper function to generate output table filenames ---
-generate_output_tablename <- function(studies_file_path, command, dataset, annotation, custom_name = NULL, pvalue_threshold = NULL) {
-  top_dir <- dirname(studies_file_path)
-  studies_filename_full <- basename(studies_file_path)
-  
-  # Remove .studies.tsv suffix to get the prefix
-  studies_file_prefix <- sub("\\.studies\\.tsv$", "", studies_filename_full)
-  
-  filename_parts <- c(studies_file_prefix, command)
-  
-  if (!is.null(custom_name) && nzchar(custom_name)) {
-    filename_parts <- c(paste0(studies_file_prefix, ".", command), paste0("_", custom_name)) # custom_name is appended to command part
-    filename_parts[1] <- paste0(studies_file_prefix, ".", command, "_", custom_name) # command and custom_name combined
-    filename_parts <- filename_parts[1] # keep only the combined part for this segment
+generate_output_tablename <- function(studies_file_path, command, dataset, annotation, name = NULL, pvalue_threshold = NULL) {
+  if (!is.null(name) && nzchar(name)) {
+    top_dir <- file.path(dirname(studies_file_path), name)
+    studies_file_prefix <- name
   } else {
-    filename_parts <- paste0(studies_file_prefix, ".", command)
+    top_dir <- dirname(studies_file_path)
+    studies_filename_full <- basename(studies_file_path)
+    studies_file_prefix <- sub("\\.studies\\.tsv$", "", studies_filename_full)
   }
-  
-  # Correctly assemble the filename stem before adding dataset, annotation, and extension
-  # The pattern is <studies_file_prefix>.<command>[_<custom_name>] then .<dataset>.<annotation>.tsv
-  
-  # Start with prefix and command
+
   base_filename_stem <- paste(studies_file_prefix, command, sep = ".")
-  
-  # Add custom_name if provided
-  if (!is.null(custom_name) && nzchar(custom_name)) {
-    base_filename_stem <- paste0(base_filename_stem, "_", custom_name)
-  }
   
   # Add pvalue_threshold if provided
   if (!is.null(pvalue_threshold)) {
@@ -50,11 +34,11 @@ generate_output_tablename <- function(studies_file_path, command, dataset, annot
 doc <- 'CLI for BurdenEM project
 
 Usage:
-  cli.R heritability <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--custom_name=<cn>]
-  cli.R polygenicity <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--custom_name=<cn>]
-  cli.R replication <studies_file> [--primary_dataset=<pd>] [--pvalue_threshold=<pval>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--custom_name=<cn>]
-  cli.R effect_replication <studies_file> [--primary_dataset=<pd>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--custom_name=<cn>]
-  cli.R distribution <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--custom_name=<cn>]
+  cli.R heritability <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R polygenicity <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R replication <studies_file> [--primary_dataset=<pd>] [--pvalue_threshold=<pval>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R effect_replication <studies_file> [--primary_dataset=<pd>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R distribution <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
   cli.R -h | --help
   cli.R --version
 
@@ -64,10 +48,10 @@ Options:
   -t --trait_type=<tt>       Trait type to process [default: all].
   -v --verbose               Print extra output [default: FALSE].
   --no_parallel              Disable parallel processing [default: FALSE].
-  --custom_name=<cn>         Custom string to append to output filenames.
+  --name=<name>              Custom name for output directory and file prefix.
   --primary_dataset=<pd>     Identifier for the primary dataset in replication pairs (e.g., \'ukbb_eur\').
   --pvalue_threshold=<pval>  Two-tailed p-value threshold for significance in the primary study.
-  -h --help                  Show this screen.
+  -h, --help                  Show this screen.
   --version                  Show version.
 
 '
@@ -105,6 +89,23 @@ if (!is.null(command) || !(args$help || isTRUE(args$version))) { # Proceed if it
     studies_df <- readr::read_tsv(studies_file_path, show_col_types = FALSE)
     original_study_count <- nrow(studies_df)
     if (args$verbose) message(sprintf("Loaded %d studies.", original_study_count))
+
+    # If a custom name is provided, update the model path to look in that directory
+    if (!is.null(args$name) && nzchar(args$name)) {
+        if (!("model_filename" %in% names(studies_df))) {
+            stop("'model_filename' column not found in studies file, but --name argument was provided.")
+        }
+        studies_dir <- dirname(studies_file_path)
+        studies_df <- studies_df %>%
+            mutate(
+                model_filename = file.path(
+                    studies_dir, 
+                    args$name, 
+                    "models", 
+                    paste0(identifier, ".", args$annotation, ".rds")
+                )
+            )
+    }
 
     # Trait Type Filtering
     if (args$trait_type != "all") {
@@ -166,7 +167,7 @@ if (command == "heritability") {
                 command = command, # 'heritability'
                 dataset = "all", # Consolidated table for all datasets in studies_df
                 annotation = args$annotation,
-                custom_name = args$custom_name
+                name = args$name
             )
             
             # Ensure the output directory exists
@@ -211,7 +212,7 @@ if (command == "heritability") {
             command = command, # 'polygenicity'
             dataset = "all",   # Consolidated table
             annotation = args$annotation,
-            custom_name = args$custom_name
+            name = args$name
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
@@ -274,7 +275,7 @@ if (command == "heritability") {
             command = command, 
             dataset = paste0("primary-", gsub("[^A-Za-z0-9_]", "", args$primary_dataset)), # Sanitize primary_dataset for filename
             annotation = args$annotation,
-            custom_name = args$custom_name,
+            name = args$name,
             pvalue_threshold = args$pvalue_threshold
         )
         
@@ -330,7 +331,7 @@ if (command == "heritability") {
             command = command, 
             dataset = paste0("primary-", gsub("[^A-Za-z0-9_]", "", args$primary_dataset)), # Sanitize primary_dataset for filename
             annotation = args$annotation,
-            custom_name = args$custom_name
+            name = args$name
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
@@ -361,7 +362,7 @@ if (command == "heritability") {
             command = command, # 'distribution'
             dataset = "all", # Consolidated table for all datasets in studies_df
             annotation = args$annotation,
-            custom_name = args$custom_name
+            name = args$name
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)

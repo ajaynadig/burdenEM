@@ -3,13 +3,13 @@
 # sim_cli.R: Calculate true heritability or polygenicity for simulated data
 
 # Library imports
-if (!requireNamespace("argparse", quietly = TRUE)) install.packages("argparse")
+if (!requireNamespace("argparse", quietly = TRUE)) install.packages("argparse", repos = "http://cran.us.r-project.org")
 library(argparse)
-if (!requireNamespace("data.table", quietly = TRUE)) install.packages("data.table")
+if (!requireNamespace("data.table", quietly = TRUE)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 library(data.table)
-if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
 library(dplyr)
-if (!requireNamespace("tools", quietly = TRUE)) install.packages("tools")
+if (!requireNamespace("tools", quietly = TRUE)) install.packages("tools", repos = "http://cran.us.r-project.org")
 library(tools)
 
 # Source functions for calculating true heritability and polygenicity
@@ -36,12 +36,33 @@ main <- function(args) {
     stop("'sumstats_filename_pattern' column not found in studies file.")
   }
 
+  # If a custom name is provided, update the model path to look in that directory
+  if (!is.null(args$name)) {
+    if (!("model_filename" %in% names(studies_df))) {
+        stop("'model_filename' column not found in studies file, but --name argument was provided.")
+    }
+    studies_dir <- dirname(studies_filepath)
+    studies_df <- studies_df %>%
+        mutate(
+            model_filename = file.path(
+                studies_dir, 
+                args$name, 
+                "models", 
+                paste0(identifier, ".", args$annotation, ".rds")
+            )
+        )
+  }
+
   # --- Output file setup ---
-  studies_file_basename <- basename(studies_filepath)
-  studies_file_prefix <- file_path_sans_ext(studies_file_basename)
-  studies_file_prefix <- sub("\\.studies$", "", studies_file_prefix, ignore.case = TRUE)
-  
   output_dir <- file.path(dirname(studies_filepath), "tables")
+  if (!is.null(args$name)) {
+    studies_file_prefix <- args$name
+    output_dir <- file.path(dirname(studies_filepath), args$name, "tables")
+  } else {
+    studies_file_basename <- basename(studies_filepath)
+    studies_file_prefix <- file_path_sans_ext(studies_file_basename)
+    studies_file_prefix <- sub("\\.studies$", "", studies_file_prefix, ignore.case = TRUE)
+  }
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE)
   }
@@ -288,16 +309,19 @@ subparsers <- parser$add_subparsers(title = "commands", dest = "command")
 parser_heritability <- subparsers$add_parser("heritability", help = "Calculate true and estimated heritability, and meta-analyze.")
 parser_heritability$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
 parser_heritability$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation to use for estimated heritability calculation (e.g., pLoF).")
+parser_heritability$add_argument("-n", "--name", type = "character", default = NULL, help = "Custom name for output files and model directory.")
 
 parser_polygenicity <- subparsers$add_parser("polygenicity", help = "Calculate true polygenicity metrics.")
 parser_polygenicity$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
 parser_polygenicity$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation to use for estimated polygenicity calculation (e.g., pLoF).")
 parser_polygenicity$add_argument("--no_parallel", action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially).")
+parser_polygenicity$add_argument("-n", "--name", type = "character", default = NULL, help = "Custom name for output files and model directory.")
 
 parser_distribution <- subparsers$add_parser("distribution", help = "Calculate true and estimated distribution, and meta-analyze.")
 parser_distribution$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
 parser_distribution$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation to use for estimated distribution calculation (e.g., pLoF).")
 parser_distribution$add_argument("--no_parallel", action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially).")
+parser_distribution$add_argument("-n", "--name", type = "character", default = NULL, help = "Custom name for output files and model directory.")
 
 # Calibration subcommand
 parser_calibration <- subparsers$add_parser("calibration", help = "Calculate calibration of posterior-mean effects.")
@@ -305,6 +329,7 @@ parser_calibration$add_argument("studies_file", type = "character", help = "Path
 parser_calibration$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation used when loading fitted models (e.g., pLoF).")
 parser_calibration$add_argument("--no_parallel", action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially).")
 parser_calibration$add_argument("--per_allele_effects", action="store_true", default=FALSE, help="Convert effect sizes to per-allele (e.g., beta -> beta/variant_variance).")
+parser_calibration$add_argument("-n", "--name", type = "character", default = NULL, help = "Custom name for output files and model directory.")
 
 args <- parser$parse_args()
 

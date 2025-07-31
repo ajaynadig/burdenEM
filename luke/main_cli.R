@@ -59,6 +59,8 @@ option_list = list(
     make_option(c("--frequency_range"), type="character", default="0,0.001", help="Comma-separated min,max for allele frequency range (e.g., '0,0.001'). Default: %default"),
     make_option(c("-v", "--verbose"), action="store_true", default=FALSE, help="Print extra details during execution."),
     make_option(c("--no_parallel"), action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially)."),
+    make_option(c("-n", "--name"), type="character", default=NULL, 
+        help="Name for the output directory. Overrides the directory in the studies file.", metavar="character"),
     make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,1e-5,1e-4,1e-3",
         help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character")
 )
@@ -104,6 +106,24 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
     # --- 3. Model output path handling ---
     model_output_path_template <- current_study$model_filename
     model_output_path_with_anno <- stringr::str_replace(model_output_path_template, "<ANNOTATION>", opt_config$annotation)
+
+    if(opt_config$verbose) {
+        message(paste("Initial model_output_path_template:", model_output_path_template))
+        message(paste("Initial model_output_path_with_anno:", model_output_path_with_anno))
+    }
+
+    if (!is.null(opt_config$name)) {
+        studies_dir <- dirname(studies_file_path)
+        output_dir <- file.path(studies_dir, opt_config$name)
+        model_output_dir <- file.path(output_dir, "models")
+        model_filename_base <- paste0(current_study$identifier, ".", opt_config$annotation, ".rds")
+        model_output_path_with_anno <- file.path(model_output_dir, model_filename_base)
+        if(opt_config$verbose) {
+            message(paste("(--name) studies_dir:", studies_dir))
+            message(paste("(--name) model_output_dir:", model_output_dir))
+            message(paste("(--name) final model_output_path_with_anno:", model_output_path_with_anno))
+        }
+    }
     
     model_output_dir <- dirname(model_output_path_with_anno)
     if (!dir.exists(model_output_dir)) {
@@ -111,6 +131,9 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
         if(opt_config$verbose) message(paste("Created model output directory:", model_output_dir, "for study:", current_study$identifier))
     }
     output_file_prefix_for_run <- tools::file_path_sans_ext(model_output_path_with_anno)
+    if(opt_config$verbose) {
+        message(paste("Final output_file_prefix_for_run:", output_file_prefix_for_run))
+    }
 
     # --- 4. Prepare arguments for run_burdenEM_rvas for the current study ---
     run_args <- list(
