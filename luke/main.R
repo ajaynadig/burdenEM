@@ -20,16 +20,15 @@ source("luke/intercept.R")
 source("luke/variant_to_gene.R")
 source("R/model.R")
 source("R/likelihoods.R")
-source("R/EM.R") # Source for EM_fit, bootstrap_EM, null_EM_rvas
+source("R/EM.R") # Source for EM_fit
 source("luke/gene_features.R") # Source for get_bins
 source("luke/burdenEM.R") # Source for fit_burdenem_model
-source("luke/negative_binomial.R") # Source for estimate_overdispersion, aggregate_variants_to_gene_lists, gene_likelihood
+source("luke/binary_trait_likelihood.R") 
 
 
 #' Run BurdenEM RVAS Workflow
 #'
 #' Loads variant data, processes it to gene-level, initializes the BurdenEM model,
-#' fits the model using EM, and optionally performs bootstrapping and null simulations.
 #'
 #' @param variant_dir Directory containing variant files.
 #' @param data_name Dataset name prefix (e.g., 'genebass').
@@ -45,7 +44,6 @@ source("luke/negative_binomial.R") # Source for estimate_overdispersion, aggrega
 #' @param frequency_range Numeric vector c(min, max) for AF range filter [min,max). Default: c(0, 0.001).
 #' @param per_allele_effects Logical, whether to calculate per-allele effect sizes instead of per-gene. Default: FALSE.
 #' @param correct_for_ld Logical, whether to apply LD correction to burden scores and gamma. Default: FALSE.
-#' @param correct_genomewide Logical, whether to apply genome-wide burden correction. Default: FALSE.
 #' @return A list object representing the fitted BurdenEM model.
 #' @export
 run_burdenEM_rvas <- function(
@@ -59,15 +57,13 @@ run_burdenEM_rvas <- function(
     feature_col_name = "lof.oe",
     num_feature_bins = 5,
     num_positive_components = 10,
-    burdenem_grid_size = 100,
-    num_iter = 10000,
-    bootstrap = TRUE,
+    burdenem_grid_size = 4,
+    num_iter = 5000,
     output_file_prefix = NULL, # CLI provides the full path prefix for output files
     verbose = FALSE,
     per_allele_effects = FALSE,
-    customize_components = FALSE,
-    correct_for_ld = TRUE,
-    correct_genomewide = FALSE
+    correct_for_ld = FALSE,
+    binary_trait_model_type = "betabinom"
 ) {
 
     # --- 1. Load Variant-Level Data ---
@@ -96,7 +92,8 @@ run_burdenEM_rvas <- function(
       dynamic_ld_scores_file <- ld_corrected_scores_file %>%
           gsub("<ANNOTATION>", annotation_to_process, ., fixed = TRUE) %>%
           gsub("<LOWER>", lower_fmt, ., fixed = TRUE) %>%
-          gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
+          gsub("<UPPER>", upper_fmt, ., fixed = TRUE) %>%
+          gsub("<DATASET>", dataset, ., fixed = TRUE)
       ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
           dplyr::mutate(gene = as.character(gene)) %>%
           dplyr::rename(burden_score_ld = burden_score)
@@ -107,8 +104,17 @@ run_burdenEM_rvas <- function(
     # --- 3. Process Variants to Gene-Level ---
     if (verbose) message(paste("\n--- Processing Variants to Gene-Level (", trait_type, ") ---"))
     if (trait_type == "binary") {
-        if(verbose) message("Estimating overdispersion for binary trait...")
-        variant_data <- estimate_overdispersion(variant_data, intercept_frequency_bin_edges = intercept_frequency_bin_edges, verbose = verbose)
+        if (binary_trait_model_type == "betabinom") {
+        if(verbose) message("Estimating overdispersion for binary trait using beta-binomial model...")
+        variant_data <- estimate_overdispersion_binomial(variant_data, intercept_frequency_bin_edges = intercept_frequency_bin_edges, verbose = verbose)
+        } else if (binary_trait_model_type == "nbinom") {
+            if(verbose) message("Estimating overdispersion for binary trait using negative binomial model...")
+            variant_data <- estimate_overdispersion_poisson(variant_data, intercept_frequency_bin_edges = intercept_frequency_bin_edges, verbose = verbose)    
+        } else {
+            variant_data$overdispersion <- 0
+            if (verbose) message("Not estimating overdispersion for binary trait.")
+        }
+        
         if(verbose) message("Aggregating variants to gene lists for binary trait...")
         gene_level_data <- aggregate_variants_to_gene_lists(variant_data, verbose = verbose)
         # Join feature_col_name from ld_corrected_scores_df if available for binary traits
@@ -178,6 +184,10 @@ run_burdenEM_rvas <- function(
     if(verbose) message("\n--- Defining Likelihood Function & Fitting Model ---")
 
     # Define likelihood_fn and h2_fn based on trait type
+    to_per_allele_effects <- ifelse(per_allele_effects, 
+                                   function(row, beta) beta,
+                                   function(row, beta) beta / sqrt(row$burden_score))
+
     if(trait_type == "continuous") {
         message("Using Normal likelihood for continuous trait.")
         likelihood_function <- function(row, beta_vec) {
@@ -204,15 +214,12 @@ run_burdenEM_rvas <- function(
         }
         current_drop_columns <- NULL
     } else { # Binary trait
-        per_allele_effects <- TRUE # TODO
-
-        message("Using Negative Binomial likelihood for binary trait.")
-        likelihood_function <- gene_likelihood # From luke/negative_binomial.R
-        
+        likelihood_function <- get_gene_likelihood(model_type = binary_trait_model_type, to_per_allele_effects = to_per_allele_effects)
         pval_function <- function(row) ppois(row$CAC_cases, lambda = row$expected_CAC_cases, lower.tail = FALSE)
         
         get_power_function <- function(pval_threshold, samplesize_ratio){
             power_function <- function(beta, row) {
+                beta_per_allele <- to_per_allele_effects(row, beta)
                 mu <- samplesize_ratio * row$expected_CAC_cases
                 AC_critical_upper <- qpois(pval_threshold, lambda = mu, lower.tail = FALSE)
                 AC_critical_lower <- qpois(pval_threshold, lambda = mu, lower.tail = TRUE)
@@ -228,7 +235,9 @@ run_burdenEM_rvas <- function(
         rel_samplesize_function <- function(row) row$expected_CAC_cases
 
         current_h2_function <- function(beta, row) {
-            row$prevalence / (1-row$prevalence) * row$burden_score * (exp(beta) - 1)^2 
+            beta_per_allele <- to_per_allele_effects(row, beta)
+            rate_ratio <- pmin(exp(beta_per_allele), 1/row$prevalence)
+            row$prevalence / (1-row$prevalence) * row$burden_score * (rate_ratio - 1)^2 
         }
         current_drop_columns <- c("AC_cases", "expected_count", "overdispersion")
     }
@@ -248,6 +257,7 @@ run_burdenEM_rvas <- function(
     burdenem_model$pval_function <- pval_function
     burdenem_model$get_power_function <- get_power_function
     burdenem_model$rel_samplesize_function <- rel_samplesize_function
+    burdenem_model$to_per_allele_effects <- to_per_allele_effects
 
     if(verbose) print(burdenem_model$delta)
 

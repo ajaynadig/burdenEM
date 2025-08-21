@@ -121,7 +121,7 @@ initialize_grid_model <- function(gene_data,
                                   likelihood_fn,
                                   component_endpoints,
                                   h2_function = function(beta, score) score * beta^2,
-                                  grid_points_per_component = 10,
+                                  grid_points_per_component,
                                   drop_columns = c()) {
   # 1. Generate grid and component distributions
   grid_obj <- make_grid(component_endpoints, grid_points_per_component)

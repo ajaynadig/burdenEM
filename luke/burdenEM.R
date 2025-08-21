@@ -27,8 +27,8 @@ choose_model_endpoints <- function(num_positive_components,
 #'                        'gene_score' and a feature column.
 #' @param feature_col_name Optional string: name of the column for gene features. Default: NULL.
 #' @param num_feature_bins Integer: number of quantile bins for the feature column. Default: 5.
-#' @param burdenem_grid_size Grid size for likelihood calculation. Default: 100.
-#' @param num_iter Number of iterations for EM algorithm. Default: 100000.
+#' @param burdenem_grid_size Grid size for likelihood calculation.
+#' @param num_iter Number of iterations for EM algorithm.
 #' @param per_allele_effects Logical, whether input effects are per-allele. Default: FALSE.
 #' @param verbose Logical, whether to print detailed messages. Default: FALSE.
 #' @param likelihood_fn Function defining the row-wise likelihood. Default: Normal likelihood.
@@ -39,8 +39,8 @@ choose_model_endpoints <- function(num_positive_components,
 #' @export
 fit_burdenem_model <- function(
     gene_level_data,
-    burdenem_grid_size = 100,
-    num_iter = 10000,
+    burdenem_grid_size,
+    num_iter,
     per_allele_effects = FALSE,
     verbose = FALSE,
     likelihood_function = function(row, beta_vec) {
@@ -63,12 +63,7 @@ fit_burdenem_model <- function(
         burden_score_mean <- mean(gene_level_data$burden_score, na.rm = TRUE)
         component_endpoints <- component_endpoints / sqrt(burden_score_mean)
     }
-    if(verbose) { message("Component endpoints:"); print(component_endpoints) }
-
-    # Ensure required model functions are available (e.g., source R/model.R, R/EM.R)
-    if (!exists("initialize_grid_model")) stop("Function 'initialize_grid_model' not found. Source R/model.R")
-    if (!exists("EM_fit_grid")) stop("Function 'EM_fit_grid' not found. Source R/EM.R")
-    if (!exists("information_matrices")) stop("Function 'information_matrices' not found. Source R/EM.R")
+    if(verbose) { message("Component endpoints:"); message(component_endpoints) }
 
     burdenem_model <- initialize_grid_model(
         gene_data = gene_level_data,

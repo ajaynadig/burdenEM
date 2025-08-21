@@ -47,13 +47,17 @@ option_list = list(
     make_option(c("-b", "--num_feature_bins"), type="integer", default=5, 
         help="Number of bins for feature column [default %default].", metavar="integer"),
     make_option(c("-g", "--genes_file"), type="character", default=NULL, 
-        help="Path to the genes file template (use <ANNOTATION>, <LOWER>, and <UPPER> placeholders) [required].", metavar="character"),
+        help="Path to the genes file template (optionally use <ANNOTATION>, <LOWER>, <UPPER>, and <DATASET> placeholders) [required].", metavar="character"),
     make_option(c("-c", "--num_positive_components"), type="integer", default=10, 
         help="Number of positive components for BurdenEM [default %default].", metavar="integer"),
-    make_option(c("-i", "--num_iter"), type="integer", default=10000, 
+    make_option(c("--burdenem_grid_size"), type="integer", default=4,
+        help="Grid size for BurdenEM [default %default].", metavar="integer"),
+    make_option(c("-i", "--num_iter"), type="integer", default=5000, 
         help="Number of EM iterations [default %default].", metavar="integer"),
     make_option(c("--per_allele_effects"), action="store_true", default=FALSE, dest="per_allele_effects",
         help="Calculate per-allele effect sizes instead of per-gene. [default: %default]"),
+    make_option(c("-m", "--binary_trait_model_type"), type="character", default="betabinom", dest="binary_trait_model_type",
+        help="Model type for binary traits (betabinom, binom, nbinom, or pois) [default: %default]"),
     make_option(c("--correct_for_ld"), action="store_true", default=FALSE, dest="correct_for_ld",
         help="Apply LD correction to burden scores and gamma."),
     make_option(c("--frequency_range"), type="character", default="0,0.001", help="Comma-separated min,max for allele frequency range (e.g., '0,0.001'). Default: %default"),
@@ -61,6 +65,7 @@ option_list = list(
     make_option(c("--no_parallel"), action="store_true", default=FALSE, help="Disable parallel execution across studies (runs sequentially)."),
     make_option(c("-n", "--name"), type="character", default=NULL, 
         help="Name for the output directory. Overrides the directory in the studies file.", metavar="character"),
+    make_option(c("--skip_existing"), action="store_true", default=FALSE, help="Skip studies whose output .rds already exists (after applying --name and <ANNOTATION>)."),
     make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,1e-5,1e-4,1e-3",
         help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character")
 )
@@ -115,14 +120,19 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
     if (!is.null(opt_config$name)) {
         studies_dir <- dirname(studies_file_path)
         output_dir <- file.path(studies_dir, opt_config$name)
-        model_output_dir <- file.path(output_dir, "models")
-        model_filename_base <- paste0(current_study$identifier, ".", opt_config$annotation, ".rds")
-        model_output_path_with_anno <- file.path(model_output_dir, model_filename_base)
+        # Keep the entire relative path from the studies file (e.g., 'fitted_models/...')
+        model_output_path_with_anno <- file.path(output_dir, model_output_path_with_anno)
         if(opt_config$verbose) {
             message(paste("(--name) studies_dir:", studies_dir))
-            message(paste("(--name) model_output_dir:", model_output_dir))
+            message(paste("(--name) output_dir:", output_dir))
             message(paste("(--name) final model_output_path_with_anno:", model_output_path_with_anno))
         }
+    }
+    
+    # Optionally skip if output already exists
+    if (isTRUE(opt_config$skip_existing) && file.exists(model_output_path_with_anno)) {
+        message(paste("Skipping existing:", model_output_path_with_anno))
+        return(NULL)
     }
     
     model_output_dir <- dirname(model_output_path_with_anno)
@@ -145,12 +155,14 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
         feature_col_name = opt_config$feature_col_name,
         num_feature_bins = opt_config$num_feature_bins,
         num_positive_components = opt_config$num_positive_components,
+        burdenem_grid_size = opt_config$burdenem_grid_size,
         num_iter = opt_config$num_iter,
         per_allele_effects = opt_config$per_allele_effects,
         correct_for_ld = opt_config$correct_for_ld,
         frequency_range = freq_range_cli, 
         intercept_frequency_bin_edges = icept_freq_bins_cli,
-        verbose = opt_config$verbose
+        verbose = opt_config$verbose,
+        binary_trait_model_type = opt_config$binary_trait_model_type
     )
 
     run_args <- run_args[!sapply(run_args, is.null)]
@@ -195,7 +207,7 @@ if (!opt$no_parallel && nrow(studies_df) > 1) {
         results_list <- furrr::future_map(
             .x = 1:nrow(studies_df), 
             .f = ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli),
-            .progress = opt$verbose, # Show progress bar if verbose
+            .progress = FALSE, #opt$verbose, # Show progress bar if verbose
             .options = furrr_options(seed = TRUE) # Ensure reproducibility if any RNG is used in worker
         )
         message("Parallel processing finished.")

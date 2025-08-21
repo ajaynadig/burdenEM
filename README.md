@@ -6,15 +6,18 @@ For example:
 
 ```bash
 # Step (1)
-./cli_main.R data/studies.tsv --annotation pLoF --trait_type all
+Rscript luke/main_cli.R data/my.studies.tsv --annotation pLoF --genes_file data/my.genes.txt
 
 # Step (2)
-./cli.R heritability studies.tsv --annotation pLoF --trait_type all
+Rscript luke/cli.R heritability data/my.studies.tsv --annotation pLoF
+
+# or:
+Rscript luke/cli.R effect_replication data/my.studies.tsv --primary_dataset genebass -a pLoF
 ```
 
 ## CLI
 
-The CLI has two commands, `cli_main.R` and `cli.R`, for steps 1 and 2 respectively.
+ The CLI has two commands, `luke/main_cli.R` and `luke/cli.R`, for steps 1 and 2 respectively.
 
 ### Step 1 options
 Positional arguments:
@@ -25,13 +28,18 @@ Optional flags:
 - `-g`, `--genes_file`: Path to the genes file template (use `<ANNOTATION>`, `<LOWER>`, `<UPPER>`, and optionally `<DATASET>` placeholders). [required]
 - `-f`, `--feature_col_name`: Optional: Name of the column in the genes file for gene features (e.g., 'oe_lof').
 - `-b`, `--num_feature_bins`: Number of bins for feature column [default 5].
-- `-i`, `--num_iter`: Number of EM iterations [default 10000].
-- `--per_allele_effects`: Calculate per-allele effect sizes instead of per-gene. [default: FALSE]
+- `-i`, `--num_iter`: Number of EM iterations [default 5000].
+- `-c`, `--num_positive_components`: Number of positive components for BurdenEM [default 10].
+- `--burdenem_grid_size`: Grid size for BurdenEM [default 4].
+- `--per_allele_effects`: Calculate per-allele effect sizes instead of per-s.d.. [default: FALSE]
+- `-m`, `--binary_trait_model_type`: Model type for binary traits (betabinom, binom, nbinom, or pois). [default: betabinom]
 - `--correct_for_ld`: Apply LD correction to burden scores and gamma. [default: FALSE]
 - `--frequency_range`: Comma-separated min,max for allele frequency range (e.g., '0,0.001'). [default: "0,0.001"]
 - `--intercept_frequency_bin_edges`: Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3'). [default: "0,1e-5,1e-4,1e-3"]
 - `--no_parallel`: Disable parallel execution across studies (runs sequentially). [default: FALSE]
 - `-v`, `--verbose`: Print extra details during execution. [default: FALSE]
+- `-n`, `--name`: Override the output directory for model files. When provided, fitted models are written under `<studies_dir>/<name>/` while preserving the full relative `model_filename` path from the studies TSV.
+- `--skip_existing`: Skip studies whose output .rds already exists. [default: FALSE]
 
 
 ### Step 2 subcommands
@@ -49,8 +57,9 @@ The subcommands are:
 - `--annotation`, `-a` the variant annotation (default: pLoF)
 - `--trait_type`, `-t` either 'binary', 'continuous', or 'all' (default: all)
 - `--no_parallel` use sequential instead of parallel execution across studies
-- `--custom_name=<cn>` A custom string to be inserted into the output filename
+- `-n`, `--name` Override the output directory and table filename prefix. When provided, tables are written to `<studies_dir>/<name>/tables/` and table filenames are prefixed by `<name>`. For loading model files, the full relative `model_filename` from the studies TSV is preserved (after `<ANNOTATION>` substitution) and prefixed with `<studies_dir>/<name>/`.
 - `--primary_dataset=<pd>` For `replication` and `effect_replication` subcommands, specifies the identifier of the dataset to be used as the primary study for comparisons.
+- `--per_allele_effects=<pa>` For `effect_replication` only: set to `TRUE` (per-allele effects) or `FALSE` (per-gene effects). [default: TRUE]
 - `--help`, `-h`
 - `--verbose`, `-v`
 
@@ -61,8 +70,8 @@ The subcommands are:
     - `dataset`
     - `description`
     - `abbreviation`
-    - `sumstats_filename_pattern` containing placeholders `<frequency_range>` and `<annotation>`
-    - `model_filename`
+    - `sumstats_filename_pattern` containing placeholder `<ANNOTATION>`
+    - `model_filename` containing placeholder `<ANNOTATION>`
 - `.model.rds`
 - `.sumstats.txt.bgz`
     - `gene`, either a symbol or ENSG ID

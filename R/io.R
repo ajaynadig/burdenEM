@@ -190,13 +190,14 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
                  return(NULL)
              }
 
-             data <- data %>% dplyr::mutate(functional_category = functional_category_label)
-             message(paste("  -> Read", nrow(data), "variants, assigned category:", functional_category_label))
+              data <- data %>% dplyr::mutate(functional_category = functional_category_label)
+              message(paste("  -> Read", nrow(data), "variants, assigned category:", functional_category_label))
 
-             # Recalculate AF to ensure consistency with AC_cases > 0
-             if (detected_trait_type %in% BINARY_TRAIT_TYPES) {
-                 data <- data %>% dplyr::mutate(AF = pmax(AF, AC_cases / (2*N), na.rm = TRUE))
-             }
+              # Recalculate AF to ensure consistency with AC_cases > 0
+              if (detected_trait_type %in% BINARY_TRAIT_TYPES) {
+                  data <- data %>% dplyr::mutate(AC_cases = as.integer(AC_cases),
+                                                  AF = pmax(AF, AC_cases / (2*N), na.rm = TRUE))
+              }
 
              # --- Add AF Filtering --- #
              if (!is.null(frequency_range)) {
