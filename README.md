@@ -31,7 +31,7 @@ Optional flags:
 - `-i`, `--num_iter`: Number of EM iterations [default 5000].
 - `-c`, `--num_positive_components`: Number of positive components for BurdenEM [default 10].
 - `--burdenem_grid_size`: Grid size for BurdenEM [default 4].
-- `--per_allele_effects`: Calculate per-allele effect sizes instead of per-s.d.. [default: FALSE]
+- `--per_allele_effects`: Calculate per-allele effect sizes instead of per-gene. [default: FALSE]
 - `-m`, `--binary_trait_model_type`: Model type for binary traits (betabinom, binom, nbinom, or pois). [default: betabinom]
 - `--correct_for_ld`: Apply LD correction to burden scores and gamma. [default: FALSE]
 - `--frequency_range`: Comma-separated min,max for allele frequency range (e.g., '0,0.001'). [default: "0,0.001"]
@@ -45,12 +45,12 @@ Optional flags:
 ### Step 2 subcommands
 Each step 2 subcommand requires a `studies.tsv` file as its first positional argument. It outputs a single table, which will be located within a `tables` subdirectory of the directory containing the `studies.tsv` file. This table is named with the same prefix as the `studies.tsv` file and with the name of the subcommand.
 
-The subcommands are:
-- `heritability`: computes heritability components for each study
-- `polygenicity`: computes several polygenicity metrics
-- `distribution`: Computes the number of genes required to explain various fractions of heritability
-- `replication`: Calculates p-value replication metrics between a primary study and other studies for the same trait. Requires specifying a `--primary_dataset`.
-- `effect_replication`: Calculates effect-size replication metrics between a primary study and other studies for the same trait. Requires specifying a `--primary_dataset`.
+    The subcommands are:
+    - `heritability`: computes heritability components for each study
+    - `polygenicity`: computes several polygenicity metrics
+    - `distribution`: Computes the number of genes required to explain various fractions of heritability
+    - `replication`: Calculates p-value replication metrics between a primary study and other studies for the same trait. Requires specifying a `--primary_dataset`.
+    - `effect_replication`: Calculates effect-size replication metrics between a primary study and other studies for the same trait. Requires specifying a `--primary_dataset`. Not supported for binary traits.
 
 ### Step 2 options
 - `studies_file` (required)
@@ -59,9 +59,10 @@ The subcommands are:
 - `--no_parallel` use sequential instead of parallel execution across studies
 - `-n`, `--name` Override the output directory and table filename prefix. When provided, tables are written to `<studies_dir>/<name>/tables/` and table filenames are prefixed by `<name>`. For loading model files, the full relative `model_filename` from the studies TSV is preserved (after `<ANNOTATION>` substitution) and prefixed with `<studies_dir>/<name>/`.
 - `--primary_dataset=<pd>` For `replication` and `effect_replication` subcommands, specifies the identifier of the dataset to be used as the primary study for comparisons.
-- `--per_allele_effects=<pa>` For `effect_replication` only: set to `TRUE` (per-allele effects) or `FALSE` (per-gene effects). [default: TRUE]
+- `--pvalue_threshold=<pval>` For `replication` only: two-tailed p-value threshold for significance in the primary study.
 - `--help`, `-h`
 - `--verbose`, `-v`
+- `--version`
 
 ## File formats
 - `.studies.tsv` with one line per study-phenotype pair

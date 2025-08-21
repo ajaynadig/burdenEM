@@ -1,17 +1,28 @@
 # luke/distribution_functions.R
+source("R/model.R")
 
 #' PMF of the effect size distribution over genes evaluated at grid points
 #'
 #' @param model A model object
 #' @return A numeric vector representing the PMF.
-gene_PMF <- function(model) {
+gene_PMF_from_prior <- function(model) {
   features <- do.call(rbind, model$df$features)
   gene_component_contributions <- features %*% model$delta
   weights <- colMeans(gene_component_contributions)
   pmf_matrix <- weights %*% model$components
-  # return(as.numeric(pmf_matrix) / sum(pmf_matrix))
   return(as.numeric(pmf_matrix))
 }
+
+#' PMF of the effect size distribution over genes evaluated at grid points
+#'
+#' @param model A model object
+#' @return A numeric vector representing the PMF.
+gene_PMF_from_posterior <- function(model) {
+  pmf_matrix <- grid_posterior(model)
+  return(colMeans(pmf_matrix))
+}
+
+gene_PMF <- gene_PMF_from_posterior
 
 
 #' PMF of the effect size distribution over components of variance evaluated at grid points
@@ -67,6 +78,23 @@ variance_CDF <- function(model) {
 #' @param y A numeric vector of y-coordinates.
 #' @return A piecewise linear function mapping f(x[i]) -> y[i].
 #' @export
+as_piecewise_linear_smooth <- function(x, y) {
+  n <- length(y)
+  y_smoothed <- y
+  for (i in 1:5) {
+    y_smoothed[2:(n-1)] <- 0.5 * (y_smoothed[1:(n-2)] + y_smoothed[3:n])
+  }
+  return(as_piecewise_linear(x, y_smoothed))
+  # smoothed <- smooth.spline(x, y)
+  # as_piecewise_linear(smoothed$x, smoothed$y)
+}
+
+#' Creates a piecewise linear function interpolating between points on a grid.
+#' 
+#' @param x A numeric vector of x-coordinates.
+#' @param y A numeric vector of y-coordinates.
+#' @return A piecewise linear function mapping f(x[i]) -> y[i].
+#' @export
 as_piecewise_linear <- function(x, y) {
   approxfun(x, y, method = "linear", rule = 1, ties = "ordered", f = 1)
 }
@@ -78,6 +106,16 @@ as_piecewise_linear <- function(x, y) {
 #' @export
 get_negated <- function(f) {
   function(t) -f(t)
+}
+
+# Aggregates weights for consecutive duplicate values. Assumes `values` are already sorted.
+aggregate_weights_by_value <- function(values, weights) {
+  r <- rle(values)
+  unique_values <- r$values
+  ends <- cumsum(r$lengths)
+  starts <- c(1, head(ends, -1) + 1)
+  summed_weights <- mapply(function(a, b) sum(weights[a:b]), starts, ends)
+  list(values = unique_values, weights = summed_weights)
 }
 
 #' Returns the function g(t) = f(-t)
@@ -102,9 +140,10 @@ get_piecewise_linear_cdf <- function(grid_values, grid_pmf, f=function(t) t, rig
   fn <- if (right_tail) get_negated(f) else f
   f_values <- fn(grid_values)
   argsort <- order(f_values)
-  grid_pmf <- grid_pmf[argsort]
   f_values <- f_values[argsort]
-  result_fn <- as_piecewise_linear(f_values, cumsum(grid_pmf))
+  grid_pmf <- grid_pmf[argsort]
+  agg <- aggregate_weights_by_value(f_values, grid_pmf)
+  result_fn <- as_piecewise_linear(agg$values, cumsum(agg$weights))
   result <- if (right_tail) get_reversed(result_fn) else result_fn
   return(result)
 }
@@ -121,9 +160,10 @@ get_piecewise_linear_qf <- function(grid_values, grid_pmf, f=function(t) t, righ
   fn <- if (right_tail) get_negated(f) else f
   f_values <- fn(grid_values)
   argsort <- order(f_values)
-  grid_pmf <- grid_pmf[argsort]
   f_values <- f_values[argsort]
-  result_fn <- as_piecewise_linear(cumsum(grid_pmf), f_values)
+  grid_pmf <- grid_pmf[argsort]
+  agg <- aggregate_weights_by_value(f_values, grid_pmf)
+  result_fn <- as_piecewise_linear(cumsum(agg$weights), agg$values)
   result <- if (right_tail) get_negated(result_fn) else result_fn
   return(result)
 }
@@ -384,7 +424,7 @@ get_needed_genes_fn_derivative <- function(model, component_index) {
   # (∂Vinv/∂w)(v)
   dVinv_dw <- get_dVinv_dw(model, component_index)
 
-  # dF/dw = (∂G/∂w)(Vinv(v)) - gene_pdf(Vinv(v)) * (∂Vinv/∂w)(v)
+  # dF/dw|v = (∂G/∂w)(Vinv(v)) - gene_pdf(Vinv(v)) * (∂Vinv/∂w)(v)
   dF_dw_fn <- function(v) {
     q <- Vinv(v)
     return(dG_dw(q) - gene_pdf(q) * dVinv_dw(v))
@@ -400,19 +440,69 @@ get_cov_w_matmat <- function(model) {
     result <- matrix(0, nrow = nrow(model$components) - 1, ncol = ncol(x))
     for (i in 1:length(feature_weights)) {
       offset <- 1e-6 * diag(diag(model$information[[i]]))#mean(diag(model$information[[i]])) * diag(nrow(model$information[[1]]))
-      print(offset)
-      print(model$information[[i]])
+      # print(offset)
+      # print(model$information[[i]])
       product <- solve(model$information[[i]] + offset, x)
       result <- result + feature_weights[i] * product
-      print('x:')
-      print(x)
-      print('product:')
-      print(product)
+      # print('x:')
+      # print(x)
+      # print('product:')
+      # print(product)
 
     }
     return(result)
   }
 }
+
+#' Calculate quantiles of genes and variance with standard errors
+#'
+#' @param model A model object, which must contain:
+#'   - `delta`: Matrix of mixture weights (features x components).
+#'   - `null_index`: Index of the null component.
+#'   - `information`: A list of information matrices, one for each feature category.
+#'                    Each matrix corresponds to the non-null components.
+#'   And be compatible with `get_needed_genes_fn` and `get_needed_genes_fn_derivative`.
+#'
+#' @return A function which takes a vector of variance quantiles and 
+#' returns a dataframe with the following columns:
+#'   - `variance`: The input vector
+#'   - `needed_genes`: The fraction of genes needed to explain V[i] of variance
+#'   - `se`: The standard errors of the quantiles
+#'   - `dVdG`: The nth largest contribution to variance, where n=needed_genes[i]*num_genes;
+#'            i.e., the variance quantile function evaluated at V[i]
+#'   - variance_se: Standard error of the fraction of variance explained by contributions >= dVdG[i]
+#'   - needed_genes_se: Standard error of the fraction of genes with contributions >= dVdG[i]
+#' @export
+get_quantiles_with_se_fn <- function(model) {
+
+  quantiles_with_se_fn <- function(v) {
+    num_genes <- nrow(model$df)
+    needed_genes_fn <- get_needed_genes_fn(model)
+    needed_genes_var_fn <- get_needed_genes_var_fn(model)
+    Vinv_fn <- get_variance_qf_betasq(model, right_tail=TRUE)
+    df <- data.frame(
+      variance = v,
+      needed_genes = needed_genes_fn(v),
+      dVdG = Vinv_fn(v),
+      needed_genes_se = sqrt(needed_genes_var_fn(v)) / num_genes
+    )
+
+    total_variance <- sum(posterior_expectation2(model, function_to_integrate = function(x) {x^2}))
+    for (i in 1:length(v)) {
+      q <- Vinv_fn(v[i])
+      f <- function(x) {x^2 > q}
+      result <- posterior_expectation_with_se(model, function_to_integrate = f)
+      df$genes_cdf_se[i] <- sqrt(sum(result$se^2))  / num_genes
+
+      f <- function(x, row) {model$h2_function(x, row) * (x^2 > q)}
+      result <- posterior_expectation_with_se(model, function_to_integrate = f)
+      df$variance_se[i] <- sqrt(sum(result$se^2))  / total_variance
+    }
+    return(df)
+    
+  }
+  return(quantiles_with_se_fn)
+  }
 
 #' Calculate Point Estimates and Standard Errors for F(v)
 #'
@@ -442,21 +532,31 @@ get_needed_genes_var_fn <- function(model) {
     Z <- matrix(NA, nrow = length(v), ncol = nrow(model$components))
 
     for (j in 1:nrow(model$components)) {
-      epsilon <- 1e-9
-      F_base_fn <- get_needed_genes_fn(model)
-      model_plus_eps <- model
-      model_plus_eps$delta[, j] <- model_plus_eps$delta[, j] + epsilon
-      F_plus_eps_fn <- get_needed_genes_fn(model_plus_eps)
-
-      dF_dw_j_fn <- function(v) {
-        (F_plus_eps_fn(v) - F_base_fn(v)) / epsilon
-      }
-      # dF_dw_j_fn <- get_needed_genes_fn_derivative(model, component_index = j)
+      dF_dw_j_fn <- get_needed_genes_fn_derivative(model, component_index = j)
       Z[, j] <- dF_dw_j_fn(v)
     }
     Z <- Z[, -model$null_index] - Z[, model$null_index] %*% matrix(1, nrow = 1, ncol = nrow(model$components)-1)
-    
-    return(Z %*% cov_w_matmat(t(Z)))
+    result <- rowSums(Z * t(cov_w_matmat(t(Z))))
+    print(result)
+    return(result)
   }
   return(needed_genes_var_fn)
   }
+
+#' Calculate the cumulative variance function, defined as the fraction of variance explained
+#' by the top fraction p of genes.
+#'
+#' @param model A model object.
+#' @return A function that takes a fraction of genes and returns the cumulative variance explained by the top p genes.
+#' @export
+get_cumulative_variance_fn <- function(model) {
+  gene_upper_quantile_fn <- get_gene_qf_betasq(model, right_tail=TRUE)
+  gene_upper_cdf <- get_gene_cdf_betasq(model, right_tail=TRUE)
+  variance_upper_cdf <- get_variance_cdf_betasq(model, right_tail=TRUE)
+
+  cumulative_variance_fn <- function(p) {
+    v <- gene_upper_quantile_fn(p)
+    V <- variance_upper_cdf(v)
+    return(V)
+  }
+}

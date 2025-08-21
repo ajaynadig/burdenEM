@@ -10,27 +10,13 @@ suppressPackageStartupMessages(library(furrr))
 suppressPackageStartupMessages(library(future))
 source("R/model.R") 
 
-# Helper function for binomial confidence intervals using the Clopper-Pearson exact method
-binomial_ci <- function(x, n, conf_level = 0.95) {
-    alpha <- 1 - conf_level
-    lower <- qbeta(alpha/2, x, n - x + 1)
-    upper <- qbeta(1 - alpha/2, x + 1, n - x)
-    data.frame(estimate = x/n, lower = lower, upper = upper)
-}
 
-compute_effect_replication_metrics_for_pair <- function(primary_model, replication_model, verbose = FALSE, convert_to_per_allele = TRUE) {
+compute_effect_replication_metrics_for_pair <- function(primary_model, replication_model, verbose = FALSE) {
 
-    if(convert_to_per_allele){
-        effect_size_fn <- function(x, row) x / sqrt(row$burden_score)
-        effect_sq_fn <- function(x, row) x^2 / row$burden_score
-        mean_effect_fn <- function(beta_persd, burden_score) sum(beta_persd * sqrt(burden_score)) / sum(burden_score)
-        mean_effect_se_fn <- function(beta_persd_se, burden_score) sqrt(sum(beta_persd_se^2 * burden_score)) / sum(burden_score)
-    } else {
-        effect_size_fn <- function(x) x
-        effect_sq_fn <- function(x) x^2
-        mean_effect_fn <- function(beta_persd, burden_score) mean(beta_persd)
-        mean_effect_se_fn <- function(beta_persd_se, burden_score) sqrt(mean(beta_persd_se^2))
-    }
+    effect_size_fn <- function(x, row) x
+    mean_effect_fn <- function(beta, burden_score) mean(beta)
+    mean_effect_se_fn <- function(beta_se, burden_score) sqrt(mean(beta_se^2) / length(beta_se))
+    effect_sq_fn <- function(x, row) effect_size_fn(x, row)^2
     
     # --- Compute posterior-mean effect sizes for UKBB gene data ---
     primary_model$df$posterior_mean <- posterior_expectation2(primary_model, function_to_integrate = effect_size_fn)
@@ -82,9 +68,11 @@ compute_effect_replication_metrics_for_pair <- function(primary_model, replicati
         group_by(bin) %>%
         summarise(
             count = n(),             
-            expected_posterior_mean = mean(posterior_mean),
+            expected_posterior_mean = if_else(count > 0, 
+                                mean_effect_fn(posterior_mean, burden_score.primary), 
+                                NA_real_),
             expected_posterior_mean_se = if_else(count > 0,
-                                  sqrt(mean(posterior_variance) / count),
+                                  mean_effect_se_fn(sqrt(posterior_variance), burden_score.primary),
                                   NA_real_),
             observed_effect_replication = if_else(count > 0, 
                                 mean_effect_fn(effect_estimate.replication, burden_score.replication), 
@@ -168,7 +156,7 @@ process_effect_replication_pair <- function(primary_study_row, replication_study
     )
 
     if (!is.null(primary_model_obj) && !is.null(replication_model_obj)) {
-        pair_metrics <- compute_effect_replication_metrics_for_pair(primary_model_obj, replication_model_obj, verbose=verbose_param)
+        pair_metrics <- compute_effect_replication_metrics_for_pair(primary_model_obj, replication_model_obj, verbose = verbose_param)
         
         if (nrow(pair_metrics) > 0) {
             results <- pair_metrics %>%

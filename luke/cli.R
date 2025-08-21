@@ -6,14 +6,12 @@ library(stringr)
 
 # --- Helper function to generate output table filenames ---
 generate_output_tablename <- function(studies_file_path, command, dataset, annotation, name = NULL, pvalue_threshold = NULL) {
-  if (!is.null(name) && nzchar(name)) {
-    top_dir <- file.path(dirname(studies_file_path), name)
-    studies_file_prefix <- name
-  } else {
-    top_dir <- dirname(studies_file_path)
-    studies_filename_full <- basename(studies_file_path)
-    studies_file_prefix <- sub("\\.studies\\.tsv$", "", studies_filename_full)
-  }
+  studies_file_prefix <- sub("\\.studies\\.tsv$", "", basename(studies_file_path))
+  output_dir_name <- if (!is.null(name) && nzchar(name)) name else studies_file_prefix
+  top_dir <- file.path(dirname(studies_file_path), output_dir_name)
+
+  # The output filename prefix should also be consistent
+  studies_file_prefix <- output_dir_name
 
   base_filename_stem <- paste(studies_file_prefix, command, sep = ".")
   
@@ -31,7 +29,7 @@ generate_output_tablename <- function(studies_file_path, command, dataset, annot
   return(output_path)
 }
 
-doc <- 'CLI for BurdenEM project
+doc <- 'Step 2 CLI to analyze a fitted burdenEM model
 
 Usage:
   cli.R heritability <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
@@ -44,14 +42,14 @@ Usage:
 
 Options:
   <studies_file>             Path to the .studies.tsv file.
-  -a --annotation=<ann>      Annotation to use [default: pLoF].
-  -t --trait_type=<tt>       Trait type to process [default: all].
-  -v --verbose               Print extra output [default: FALSE].
+  -a, --annotation=<ann>     Annotation to use [default: pLoF].
+  -t, --trait_type=<tt>      Trait type to process [default: all].
+  -v, --verbose              Print extra output [default: FALSE].
   --no_parallel              Disable parallel processing [default: FALSE].
-  --name=<name>              Custom name for output directory and file prefix.
+  -n, --name=<name>          Custom name for output directory and file prefix.
   --primary_dataset=<pd>     Identifier for the primary dataset in replication pairs (e.g., \'ukbb_eur\').
   --pvalue_threshold=<pval>  Two-tailed p-value threshold for significance in the primary study.
-  -h, --help                  Show this screen.
+  -h, --help                 Show this screen.
   --version                  Show version.
 
 '
@@ -99,10 +97,9 @@ if (!is.null(command) || !(args$help || isTRUE(args$version))) { # Proceed if it
         studies_df <- studies_df %>%
             mutate(
                 model_filename = file.path(
-                    studies_dir, 
-                    args$name, 
-                    "models", 
-                    paste0(identifier, ".", args$annotation, ".rds")
+                    studies_dir,
+                    args$name,
+                    stringr::str_replace(model_filename, "<ANNOTATION>", args$annotation)
                 )
             )
     }
@@ -173,6 +170,7 @@ if (command == "heritability") {
             # Ensure the output directory exists
             dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
             
+            cat("Saving results to:", output_table_path, "\n")
             readr::write_tsv(heritability_results, output_table_path)
             if (args$verbose) {
                 message(sprintf("Heritability results saved to: %s", output_table_path))
@@ -216,6 +214,7 @@ if (command == "heritability") {
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
+        cat("Saving results to:", output_table_path, "\n")
         readr::write_tsv(polygenicity_results, output_table_path)
         if (args$verbose) {
             message(sprintf("Polygenicity results saved to: %s", output_table_path))
@@ -280,6 +279,7 @@ if (command == "heritability") {
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
+        cat("Saving results to:", output_table_path, "\n")
         readr::write_tsv(replication_results, output_table_path)
         message(sprintf("Replication results saved to: %s", output_table_path))
     } else {
@@ -335,6 +335,7 @@ if (command == "heritability") {
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
+        cat("Saving results to:", output_table_path, "\n")
         readr::write_tsv(effect_replication_results, output_table_path)
         message(sprintf("Effect replication results saved to: %s", output_table_path))
     } else {
@@ -348,9 +349,12 @@ if (command == "heritability") {
     source("luke/distribution.R") # Source the relevant R script
     
     # Call the main calculation function
-    distribution_results <- calculate_distribution_metrics_for_studies(
+    num_points <- 20
+    gene_proportions <- exp(seq(log(1/18000), 0, length.out = num_points))
+    distribution_results <- calculate_estimated_distribution_for_studies(
         studies_df = studies_df,
         annotation = args$annotation,
+        gene_proportions = gene_proportions,
         verbose = args$verbose,
         run_sequentially_param = args$no_parallel
     )
@@ -366,6 +370,7 @@ if (command == "heritability") {
         )
         
         dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
+        cat("Saving results to:", output_table_path, "\n")
         readr::write_tsv(distribution_results, output_table_path)
         if (args$verbose) {
             message(sprintf("Distribution metrics results saved to: %s", output_table_path))

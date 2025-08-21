@@ -94,7 +94,7 @@ effective_effect_var_polygenicity <- function(model) {
 
   # Mutational variance, as opposed to heritability, contributed by each gene
   effect_var_function <- function(x,row) {
-    model$h2_function(x,row) / row$burden_score
+    model$to_per_allele_effects(row, x)^2
   }
 
   h2 <- sum(posterior_expectation2(model, effect_var_function))
