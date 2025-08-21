@@ -46,9 +46,9 @@ calculate_calibration_metrics <- function(genes_df,
 
   # Choose effect-size transformation -----------------------------------------
   effect_size_fn <- if (per_allele_effects) {
-    function(x, row) x #/ sqrt(row$burden_score)
+    function(x, row) model$to_per_allele_effects(row, x)
   } else {
-    function(x, row) x * sqrt(row$burden_score)
+    function(x, row) model$to_per_allele_effects(row, x) * sqrt(row$burden_score)
   }
   true_effect_size_fn <- if (per_allele_effects) {
     function(x, burden_score) x

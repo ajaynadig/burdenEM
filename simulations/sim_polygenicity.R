@@ -112,8 +112,10 @@ meta_analyze_polygenicity <- function(true_results_df, estimated_results_df) {
         
         if(any(valid_val_indices)){
           summary_row_list[[paste0(col_name, "_mean_log10")]] <- mean(log10(vals[valid_val_indices]), na.rm = TRUE)
+          summary_row_list[[paste0(col_name, "_sd")]] <- sd(log10(vals[valid_val_indices]), na.rm = TRUE)
         } else {
           summary_row_list[[paste0(col_name, "_mean_log10")]] <- NA_real_
+          summary_row_list[[paste0(col_name, "_sd")]] <- NA_real_
         }
         
         se_col_name <- paste0(col_name, "_se")
@@ -149,6 +151,7 @@ meta_analyze_polygenicity <- function(true_results_df, estimated_results_df) {
     ordered_cols <- c(ordered_cols, 
                       paste0(metric, "_mean_log10.true"),
                       paste0(metric, "_mean_log10.estimated"),
+                      paste0(metric, "_sd.estimated"),
                       paste0(metric, "_rms_log10_se.estimated"))
   }
   

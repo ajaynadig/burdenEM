@@ -45,10 +45,9 @@ main <- function(args) {
     studies_df <- studies_df %>%
         mutate(
             model_filename = file.path(
-                studies_dir, 
-                args$name, 
-                "models", 
-                paste0(identifier, ".", args$annotation, ".rds")
+                studies_dir,
+                args$name,
+                stringr::str_replace(model_filename, "<ANNOTATION>", args$annotation)
             )
         )
   }
@@ -186,19 +185,35 @@ main <- function(args) {
       estimated_output_filepath <- file.path(output_dir, estimated_output_filename)
       fwrite(estimated_heritability_df, estimated_output_filepath, sep = "\t")
       cat(paste("ESTIMATED heritability results saved to:", estimated_output_filepath, "\n"))
+
+      # Save outlier rows (subset of estimated_heritability_df)
+      outliers_df <- estimated_heritability_df %>%
+        dplyr::group_by(abbreviation) %>%
+        dplyr::mutate(.is_outlier_total_h2 = .data[["total_h2"]] %in% grDevices::boxplot.stats(.data[["total_h2"]], coef = 5)$out) %>%
+        dplyr::ungroup() %>%
+        dplyr::filter(.is_outlier_total_h2) %>%
+        dplyr::select(-.is_outlier_total_h2)
+      outliers_output_filename <- sprintf("%s.outliers.heritability.tsv", studies_file_prefix)
+      outliers_output_filepath <- file.path(output_dir, outliers_output_filename)
+      fwrite(outliers_df, outliers_output_filepath, sep = "\t")
+      cat(paste("Outlier heritability rows saved to:", outliers_output_filepath, "\n"))
     } else {
       cat("No ESTIMATED heritability results generated to save separately.\n")
     }
     
     # --- 3. Meta-analyze and save ---
     cat("\n--- Meta-analyzing results ---\n")
-    meta_results_df <- meta_analyze_heritability(true_heritability_df, estimated_heritability_df)
+    meta_results_df <- meta_analyze_heritability(true_heritability_df, estimated_heritability_df, discard_outliers = args$discard_outliers)
     
     meta_output_filename <- sprintf("%s.meta.heritability.tsv", studies_file_prefix)
     meta_output_filepath <- file.path(output_dir, meta_output_filename)
     fwrite(meta_results_df, meta_output_filepath, sep = "\t")
     cat(paste("Meta-analyzed results saved to:", meta_output_filepath, "\n"))
   } else if (command == "distribution") {
+
+    gene_proportions <- c(1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1)
+    stopifnot(gene_proportions[length(gene_proportions)] == 1)
+
     # --- 1. Calculate TRUE distribution ---
     cat("--- Calculating TRUE distribution ---\n")
     source(file.path(script_dir, "sim_distribution.R"))
@@ -216,10 +231,12 @@ main <- function(args) {
       }
       genes_df <- fread(genes_filename)
       cat(sprintf("Processing study %d/%d: %s, using genes file: %s\n", i, nrow(studies_df), study_row$identifier, genes_filename))
-      current_result <- calculate_true_distribution(genes_df)
+      current_result <- calculate_true_distribution(genes_df, gene_proportions)
       current_result$abbreviation <- study_row$abbreviation
       true_results_list[[length(true_results_list) + 1]] <- current_result
     }
+    gene_counts <- current_result$needed_genes
+    gene_proportions <- gene_counts / gene_counts[length(gene_counts)]
     
     if (length(true_results_list) == 0) {
       cat("No TRUE distribution results generated. Exiting.\n")
@@ -238,26 +255,16 @@ main <- function(args) {
 
     # --- 2. Calculate ESTIMATED distribution ---
     cat("\n--- Calculating ESTIMATED distribution ---\n")
-    source(file.path(script_dir, "..", "luke", "distribution.R"))
-    estimated_distribution_df <- calculate_distribution_metrics_for_studies(
-      studies_df = studies_df, 
-      annotation = args$annotation,
-      verbose = TRUE,
-      include_hp_for_1_gene = FALSE,
-      run_sequentially_param = args$no_parallel
-    )
+    # source(file.path(script_dir, "..", "luke", "distribution.R"))
+    estimated_distribution_df <- calculate_estimated_distribution_for_studies(
+      studies_df, args$annotation, verbose = TRUE, run_sequentially_param = args$no_parallel,
+      gene_proportions = gene_proportions, gene_counts = gene_counts)
+    estimated_distribution_df <- estimated_distribution_df %>% dplyr::select(abbreviation, dplyr::everything())
 
-    if (nrow(estimated_distribution_df) > 0) {
-      if ("abbreviation" %in% names(estimated_distribution_df)) {
-        estimated_distribution_df <- estimated_distribution_df %>% dplyr::select(abbreviation, dplyr::everything())
-      }
-      estimated_output_filename <- sprintf("%s.estimated.distribution.tsv", studies_file_prefix)
-      estimated_output_filepath <- file.path(output_dir, estimated_output_filename)
-      fwrite(estimated_distribution_df, estimated_output_filepath, sep = "\t")
-      cat(paste("ESTIMATED distribution results saved to:", estimated_output_filepath, "\n"))
-    } else {
-      cat("No ESTIMATED distribution results generated to save separately.\n")
-    }
+    estimated_output_filename <- sprintf("%s.estimated.distribution.tsv", studies_file_prefix)
+    estimated_output_filepath <- file.path(output_dir, estimated_output_filename)
+    fwrite(estimated_distribution_df, estimated_output_filepath, sep = "\t")
+    cat(paste("ESTIMATED distribution results saved to:", estimated_output_filepath, "\n"))
     
     # --- 3. Meta-analyze and save ---
     cat("\n--- Meta-analyzing results ---\n")
@@ -267,6 +274,7 @@ main <- function(args) {
     meta_output_filepath <- file.path(output_dir, meta_output_filename)
     fwrite(meta_results_df, meta_output_filepath, sep = "\t")
     cat(paste("Meta-analyzed results saved to:", meta_output_filepath, "\n"))
+  
   } else if (command == "calibration") {
     # --- Calculate calibration metrics ---
     cat("--- Calculating calibration metrics ---\n")
@@ -310,6 +318,7 @@ parser_heritability <- subparsers$add_parser("heritability", help = "Calculate t
 parser_heritability$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
 parser_heritability$add_argument("-a", "--annotation", type = "character", required = TRUE, help = "Annotation to use for estimated heritability calculation (e.g., pLoF).")
 parser_heritability$add_argument("-n", "--name", type = "character", default = NULL, help = "Custom name for output files and model directory.")
+parser_heritability$add_argument("--discard_outliers", action="store_true", default=FALSE, help="Discard outlier total_h2 replicates (boxplot.stats coef=5) during meta-analysis.")
 
 parser_polygenicity <- subparsers$add_parser("polygenicity", help = "Calculate true polygenicity metrics.")
 parser_polygenicity$add_argument("studies_file", type = "character", help = "Path to the studies TSV file.")
