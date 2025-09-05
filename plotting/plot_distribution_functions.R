@@ -21,19 +21,24 @@ input_filename_base <- tools::file_path_sans_ext(basename(args$input_distributio
 filename_parts <- unlist(strsplit(input_filename_base, "\\."))
 annotation <- filename_parts[length(filename_parts)] # Assumes annotation is the last part, e.g., pLoF
 
-output_dir <- file.path(args$output_dir_base, annotation)
-dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+# Save alongside input top directory: top/tables/... -> top/figures/...
+input_dir <- dirname(args$input_distribution_table)
+top_dir <- dirname(input_dir)  # parent of 'tables'
+figures_dir <- file.path(top_dir, "figures")
+dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Single output PDF path based on input table name
+output_pdf_path <- file.path(figures_dir, paste0(input_filename_base, ".pdf"))
+pdf(output_pdf_path, width = 10, height = 8)
+message(paste0("Opened PDF device: ", output_pdf_path))
 
 # --- Load Data ---
 message(paste("Loading data from:", args$input_distribution_table))
 tryCatch({
   all_data_raw <- read_tsv(args$input_distribution_table, col_types = cols(.default = "c")) %>%
     mutate(
-      H2_Percent = as.numeric(H2_Percent),
-      Num_Genes = as.numeric(Num_Genes),
-      xmin_genes = as.numeric(xmin_genes),
-      xmax_genes = as.numeric(xmax_genes)
-      # Num_Genes_SE is not explicitly used in the original plotting logic for lines/points
+      Num_Genes = as.numeric(needed_genes),
+      H2_Percent = as.numeric(variance) * 100
     )
 }, error = function(e) {
   stop(paste("Error loading or processing input file:", args$input_distribution_table, "Error:", e$message))
@@ -73,18 +78,6 @@ for (current_dataset_name in datasets_to_plot) {
     message(paste0("No data for dataset: ", current_dataset_name, " after filtering. Skipping."))
     next
   }
-  
-  dataset_sanitized <- stringr::str_replace_all(tolower(current_dataset_name), "[^a-z0-9_]+", "_")
-  output_pdf_filename <- sprintf("%s.%s.%s.pdf", input_filename_base, dataset_sanitized, tolower(annotation))
-  output_pdf_path <- file.path(output_dir, output_pdf_filename)
-  
-  tryCatch({
-    pdf(output_pdf_path, width = 10, height = 8)
-    message(paste0("Opened PDF device for dataset ", current_dataset_name, ": ", output_pdf_path))
-  }, error = function(e) {
-    warning(paste0("Error opening PDF device for ", current_dataset_name, ": ", output_pdf_path, ". Error: ", e$message, ". Skipping this dataset."))
-    next
-  })
   
   unique_abbreviations <- unique(dataset_data$abbreviation)
   if (all(is.na(unique_abbreviations))) unique_abbreviations <- "UnknownTrait" # Handle case where all abbreviations are NA
@@ -151,8 +144,9 @@ for (current_dataset_name in datasets_to_plot) {
     message(paste0("  Generated plot for trait: ", current_trait_abbreviation))
   }
   
-  dev.off()
-  message(paste0("Plots for dataset ", current_dataset_name, " saved to: ", output_pdf_path))
 }
+
+dev.off()
+message(paste0("All distribution plots saved to: ", output_pdf_path))
 
 message("\nAll distribution plots generated.")

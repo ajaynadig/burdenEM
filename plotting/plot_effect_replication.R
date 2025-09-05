@@ -16,7 +16,13 @@ parser$add_argument('input_file', help = 'Path to the input CSV file with effect
 args <- parser$parse_args()
 
 # --- Configuration ---
-output_dir <- "figures/effect_replication"
+# Save alongside input top directory: top/tables/... -> top/figures/...
+input_filename_base <- tools::file_path_sans_ext(basename(args$input_file))
+input_dir <- dirname(args$input_file)
+top_dir <- dirname(input_dir)  # parent of 'tables'
+figures_dir <- file.path(top_dir, "figures")
+dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
+output_dir <- figures_dir
 
 
 # Color palette for emphasized traits
@@ -168,22 +174,16 @@ p_meta_eff_aou_vs_exp <- plot_with_emphasis(
   make_square_axes = TRUE,
   emphasize_traits = c("eur", "afr", "amr"), # Explicitly list for meta-plot
   colors = meta_ancestry_colors, 
-  title = "Meta-analyzed: Mean Observed AoU vs. Mean Expected Effect Size",
-  xlab = "Mean Expected Effect Size (Points are Bins, Error Bars: ±SD)",
-  ylab = "Mean Observed AoU Effect Size (Points are Bins, Error Bars: ±SD)",
+  title = NULL,
+  xlab = "Posterior-mean effect (UKBB) (s.e.)",
+  ylab = "Mean effect (AoU) (s.e.)",
   point_size = 0.8, 
   emphasized_point_size = 1.2, 
   add_y_equals_x_line = TRUE,
   use_legend_for_labels = TRUE,
-  legend_title_for_color = "Ancestry Group"
+  legend_title_for_color = NULL
 )
 
-ggsave(
-  filename = file.path(output_dir, "meta_effect_aou_vs_expected.pdf"),
-  plot = p_meta_eff_aou_vs_exp,
-  width = 10, 
-  height = 8 
-)
 
 # Plot 2: Observed AoU vs. Observed UKBB (Meta-analyzed)
 p_meta_eff_aou_vs_ukbb <- plot_with_emphasis(
@@ -199,23 +199,29 @@ p_meta_eff_aou_vs_ukbb <- plot_with_emphasis(
   make_square_axes = TRUE,
   emphasize_traits = emphasized_ancestries_for_meta,
   colors = meta_ancestry_colors,
-  title = "Meta-analyzed: Mean Observed AoU vs. Mean UKBB Effect Size",
-  xlab = "Mean Observed UKBB Effect Size (Points are Bins, Error Bars: ±SD)",
-  ylab = "Mean Observed AoU Effect Size (Points are Bins, Error Bars: ±SD)",
+  title = NULL,
+  xlab = "Mean effect (UKBB) (s.e.)",
+  ylab = "Mean effect (AoU) (s.e.)",
   point_size = 0.8,
   emphasized_point_size = 1.2,
   add_y_equals_x_line = TRUE,
   use_legend_for_labels = TRUE,
-  legend_title_for_color = "Ancestry Group"
+  legend_title_for_color = NULL
 )
 
-
-cat("Saving plot to:", file.path(output_dir, "meta_effect_aou_vs_ukbb.pdf"), "\n")
+# Combine the two meta-analyzed plots into a single figure and save once
+combined_meta <- grid.arrange(
+  p_meta_eff_aou_vs_exp,
+  p_meta_eff_aou_vs_ukbb,
+  ncol = 2
+)
 
 ggsave(
-  filename = file.path(output_dir, "meta_effect_aou_vs_ukbb.pdf"),
-  plot = p_meta_eff_aou_vs_ukbb,
-  width = 10,
+  filename = file.path(figures_dir, paste0(input_filename_base, ".pdf")),
+  plot = combined_meta,
+  width = 16,
   height = 8
 )
+
+cat("Saved plot to:", file.path(figures_dir, paste0(input_filename_base, ".pdf")), "\n")
 

@@ -34,8 +34,13 @@ parser$add_argument("input_file", help = "Path to the input TSV file containing 
 args <- parser$parse_args()
 
 # --- Configuration ---
-output_dir <- "figures/replication"
-dir.create(output_dir, showWarnings = FALSE, recursive = TRUE) # Ensure output_dir exists
+# Save alongside input top directory: top/tables/... -> top/figures/...
+input_filename_base <- tools::file_path_sans_ext(basename(args$input_file))
+input_dir <- dirname(args$input_file)
+top_dir <- dirname(input_dir)  # parent of 'tables'
+figures_dir <- file.path(top_dir, "figures")
+dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
+output_dir <- figures_dir
 
 # Color palette for emphasized traits
 emphasized_traits <- get_emphasized_traits()
@@ -114,6 +119,7 @@ for (anc in unique(rates$ancestry_group)) {
     width = 8,
     height = 8
   )
+  cat("Saved plot to:", file.path(output_dir, paste0(filename_base, "_", anc, ".pdf")), "\n")
 }
 
 # 3. Meta-analyzed P-value Replication Rates Plot
@@ -179,3 +185,4 @@ ggsave(
   width = 10,
   height = 6
 )
+cat("Saved plot to:", file.path(output_dir, paste0(input_filename_base, ".pdf")), "\n")
