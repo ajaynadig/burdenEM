@@ -255,7 +255,7 @@ main <- function(args) {
 
     # --- 2. Calculate ESTIMATED distribution ---
     cat("\n--- Calculating ESTIMATED distribution ---\n")
-    # source(file.path(script_dir, "..", "luke", "distribution.R"))
+    source(file.path(script_dir, "..", "luke", "distribution.R"))
     estimated_distribution_df <- calculate_estimated_distribution_for_studies(
       studies_df, args$annotation, verbose = TRUE, run_sequentially_param = args$no_parallel,
       gene_proportions = gene_proportions, gene_counts = gene_counts)

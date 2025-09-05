@@ -92,8 +92,7 @@ run_burdenEM_rvas <- function(
       dynamic_ld_scores_file <- ld_corrected_scores_file %>%
           gsub("<ANNOTATION>", annotation_to_process, ., fixed = TRUE) %>%
           gsub("<LOWER>", lower_fmt, ., fixed = TRUE) %>%
-          gsub("<UPPER>", upper_fmt, ., fixed = TRUE) %>%
-          gsub("<DATASET>", dataset, ., fixed = TRUE)
+          gsub("<UPPER>", upper_fmt, ., fixed = TRUE)
       ld_corrected_scores_df <- data.table::fread(dynamic_ld_scores_file) %>%
           dplyr::mutate(gene = as.character(gene)) %>%
           dplyr::rename(burden_score_ld = burden_score)

@@ -18,11 +18,12 @@ if(is.null(model)){
 cat("Model loaded.\n")
 
 # --- Parameters for numerical derivative ---
-component_index_to_test <- 1 
-epsilon <- 1e-12
+component_index_to_test <- 4 
+epsilon <- 1e-6
 model_plus_eps <- model
 model_plus_eps$delta[, component_index_to_test] <- model_plus_eps$delta[, component_index_to_test] + epsilon
-x_values <- model$component_endpoints[model$component_endpoints >= 0]^2
+# model_plus_eps$delta[, model$null_index] <- model_plus_eps$delta[, model$null_index] - epsilon
+x_values <- model$component_endpoints[model$component_endpoints >= 0]^2 / 100
 
 cat(paste0("\nTesting derivatives for component_index = ", component_index_to_test, " with epsilon = ", epsilon, "\n"))
 
@@ -31,6 +32,11 @@ cat(paste0("\nTesting derivatives for component_index = ", component_index_to_te
 analytical_dG_dw <- get_dG_dw(model, component_index_to_test)
 gene_cdf_plus_eps <- get_gene_cdf_betasq(model_plus_eps)
 gene_cdf_original <- get_gene_cdf_betasq(model)
+gene_pmf_plus_eps <- gene_PMF(model_plus_eps)
+gene_pmf_original <- gene_PMF(model)
+print(sum(gene_pmf_plus_eps))
+print(sum(gene_pmf_original))
+
 numerical_dG_dw <- function(x) {(gene_cdf_plus_eps(x) - gene_cdf_original(x)) / epsilon}
 comparison_df <- data.frame(
   x = x_values,
@@ -47,7 +53,7 @@ V_fn <- get_variance_cdf_betasq(model)
 V_fn_pluseps <- get_variance_cdf_betasq(model_plus_eps)
 numerical_dV_dw_fn <- function(x) (V_fn_pluseps(x) - V_fn(x)) / epsilon
 
-x_values <- c(0.01, 0.001, 0.0001, 0.00001)
+x_values <- c(0.01, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001)
 comparison_df_dv_dw <- data.frame(
   grid_effect_test_point = x_values,
   analytical = analytical_dV_dw_fn(x_values),
@@ -60,7 +66,7 @@ print(comparison_df_dv_dw)
 cat("\n--- Testing Variance QF and CDF inverse property ---\n")
 VarCDF_fn <- get_variance_cdf_betasq(model, right_tail=TRUE)
 VarQF_fn <- get_variance_qf_betasq(model, right_tail=TRUE)
-p_values_for_inverse_test <- c(0.01, 0.1, 0.5, 0.9, 0.99)
+p_values_for_inverse_test <- c(0.01, 0.1, 0.5, 0.8, 0.9, 0.95, 0.99)
 q_from_qf <- VarQF_fn(p_values_for_inverse_test)
 p_reconstructed_from_cdf <- VarCDF_fn(q_from_qf)
 inverse_check_df <- data.frame(p_original = p_values_for_inverse_test, q_from_qf = q_from_qf, p_reconstructed = p_reconstructed_from_cdf)
@@ -98,7 +104,8 @@ v_test_points <- p_values_for_inverse_test
 comparison_df_dVinv_dw <- data.frame(
   v = v_test_points,
   analytical = analytical_dVinv_dw_fn(v_test_points),
-  numerical = numerical_dVinv_dw_fn(v_test_points)
+  numerical = numerical_dVinv_dw_fn(v_test_points),
+  y = Vinv_base_fn(v_test_points)
   )
 print(comparison_df_dVinv_dw, digits=5)
 
@@ -128,13 +135,11 @@ comparison_df_dF_dw <- data.frame(
 )
 print(comparison_df_dF_dw, digits=5)
 
-cat("\n--- Testing get_F_v_standard_errors ---\n")
-needed_genes_var_fn <- get_needed_genes_var_fn(model)
-needed_genes_fn <- get_needed_genes_fn(model)
-needed_genes_var_at_v <- needed_genes_var_fn(v_test_points)
-needed_genes_at_v <- needed_genes_fn(v_test_points)
-se <- sqrt(diag(needed_genes_var_at_v))
-print(data.frame(v = v_test_points, needed_genes = needed_genes_at_v, se = se), digits=5)
+# cat("\n--- Testing get_F_v_standard_errors ---\n")
+# quantiles_with_se_fn <- get_quantiles_with_se_fn(model)
+# result <- quantiles_with_se_fn(v_test_points)
+# print(result)
+
 
 cat("--------------------------------------------\n")
 cat("\n--- Test Complete ---

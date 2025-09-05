@@ -243,7 +243,7 @@ get_dG_dw <- function(model, component_index, right_tail=FALSE) {
   )
 }
 
-#' Derivative of variance_PDF with respect to the mixture weight of component i
+#' Derivative of variance_CDF with respect to the mixture weight of component i
 #'
 #' Uses the quotient rule to account for variance normalization.
 #'
@@ -555,6 +555,23 @@ get_cumulative_variance_fn <- function(model) {
   variance_upper_cdf <- get_variance_cdf_betasq(model, right_tail=TRUE)
 
   cumulative_variance_fn <- function(p) {
+    v <- gene_upper_quantile_fn(p)
+    V <- variance_upper_cdf(v)
+    return(V)
+  }
+}
+
+#' Calculate the derivative of the cumulative variance function w.r.t. the mixture weights
+#'
+#' @param model A model object.
+#' @return A function that takes a fraction of genes and returns the partial derivatives w.r.t mixture weights.
+#' @export
+get_cumulative_variance_fn_derivative <- function(model) {
+  gene_upper_quantile_fn <- get_gene_qf_betasq(model, right_tail=TRUE)
+  gene_upper_cdf <- get_gene_cdf_betasq(model, right_tail=TRUE)
+  variance_upper_cdf <- get_variance_cdf_betasq(model, right_tail=TRUE)
+
+  cumulative_variance_fn_derivative <- function(p) {
     v <- gene_upper_quantile_fn(p)
     V <- variance_upper_cdf(v)
     return(V)
