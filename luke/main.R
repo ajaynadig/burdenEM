@@ -132,6 +132,9 @@ run_burdenEM_rvas <- function(
             frequency_bin_edges = intercept_frequency_bin_edges
         ) %>%
             dplyr::filter(!is.na(gene))
+
+        moment_h2_est = sum(gene_level_data$gamma_per_sd^2 - gene_level_data$gene_intercept) 
+        message(paste("Moment-based H2 estimate:", moment_h2_est))
     }
 
     if (nrow(gene_level_data) == 0) {
