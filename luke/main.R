@@ -63,7 +63,8 @@ run_burdenEM_rvas <- function(
     verbose = FALSE,
     per_allele_effects = FALSE,
     correct_for_ld = FALSE,
-    binary_trait_model_type = "betabinom"
+    binary_trait_model_type = "betabinom",
+    optimizer = "EM"
 ) {
 
     # --- 1. Load Variant-Level Data ---
@@ -254,7 +255,8 @@ run_burdenEM_rvas <- function(
         num_iter = num_iter,
         per_allele_effects = per_allele_effects, 
         drop_columns = current_drop_columns, 
-        verbose = verbose
+        verbose = verbose,
+        optimizer = optimizer
     )
     burdenem_model$pval_function <- pval_function
     burdenem_model$get_power_function <- get_power_function

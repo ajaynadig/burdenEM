@@ -42,26 +42,115 @@ EM_fit <- function(model,
   return(model)
 }
 
-# --- New function: EM for grid-based models ---
-EM_fit_grid <- function(model, max_iter = 1000) {
-  print(paste("Running EM fit for grid-based model with max_iter = ", max_iter))
-  features <- do.call(rbind, model$df$features)
-  cdl <- model$df$likelihood %*% t(model$components)
+#' EM optimization for mixture model fitting
+#'
+#' Fits mixture proportions using the Expectation-Maximization algorithm.
+#' This is the core optimization routine that iteratively updates mixture
+#' weights (delta) given conditional likelihoods and features.
+#'
+#' @param cdl Conditional likelihood matrix (genes x components)
+#' @param features Features matrix (genes x categories), typically one-hot encoded
+#' @param delta Initial mixture proportions matrix (categories x components)
+#' @param max_iter Maximum number of EM iterations. Default: 1000
+#'
+#' @return A list with two elements:
+#'   \item{delta}{Updated mixture proportions matrix (categories x components)}
+#'   \item{ll}{Final log-likelihood}
+#'
+#' @export
+EM_optimize <- function(cdl, features, delta, max_iter = 1000) {
   XtX_inv <- solve(t(features) %*% features)
-  delta <- model$delta
   ll_old <- -Inf
   ll_new <- NA
   for (i in seq_len(max_iter)) {
     weights <- features %*% delta
     post <- weights * cdl
     ll_new <- sum(log(rowSums(post)))
-    # if (!is.na(ll_old) && abs((ll_new - ll_old) / ll_new) < tol) break
     post <- post / rowSums(post)
     delta <- XtX_inv %*% t(features) %*% post
     ll_old <- ll_new
   }
-  model$delta <- delta
-  model$ll <- ll_new
+  return(list(delta = delta, ll = ll_new))
+}
+
+
+#' Fit mixture model using mixsqp (Sequential Quadratic Programming)
+#'
+#' This function wraps the mixsqp algorithm to fit mixture proportions.
+#' It requires that the features matrix is a one-hot encoding (each row has
+#' exactly one nonzero entry). The function runs mixsqp separately for each
+#' category (column of the features matrix) and concatenates the results.
+#'
+#' @param cdl Conditional likelihood matrix (genes x components)
+#' @param features Features matrix (genes x categories), must be one-hot encoded
+#' @param ... Additional arguments passed to mixsqp::mixsqp
+#'
+#' @return A list with two elements:
+#'   \item{delta}{Matrix of mixture proportions (categories x components)}
+#'   \item{ll}{Total log-likelihood across all categories}
+#'
+#' @export
+mixsqp_optimize <- function(cdl, features, ...) {
+  # Verify that features is a one-hot encoding
+  row_sums <- rowSums(features != 0)
+  if (!all(row_sums == 1)) {
+    stop("features matrix must be a one-hot encoding (each row must have exactly 1 nonzero entry)")
+  }
+  
+  n_categories <- ncol(features)
+  n_components <- ncol(cdl)
+  delta <- matrix(0, nrow = n_categories, ncol = n_components)
+  total_ll <- 0
+  
+  for (i in 1:n_categories) {
+    category_genes <- features[, i] != 0
+    category_cdl <- cdl[category_genes, , drop = FALSE]
+    
+    fit <- mixsqp::mixsqp(category_cdl, ...)
+    delta[i, ] <- fit$x
+    
+    # Compute log-likelihood for this category
+    weights <- category_cdl %*% fit$x
+    category_ll <- sum(log(weights))
+    total_ll <- total_ll + category_ll
+  }
+  
+  return(list(delta = delta, ll = total_ll))
+}
+
+#' Fit mixture model using specified optimizer
+#'
+#' Wrapper function that extracts data from a model object and calls the
+#' appropriate optimization routine. Supports multiple optimization methods
+#' including EM and mixsqp.
+#'
+#' @param model A BurdenEM model object containing:
+#'   \itemize{
+#'     \item df: Data frame with 'features' and 'likelihood' list columns
+#'     \item components: Matrix of component distributions
+#'     \item delta: Initial mixture proportions
+#'   }
+#' @param optimizer String specifying optimization method: "EM" or "mixsqp". Default: "EM"
+#' @param ... Additional arguments passed to the optimizer function
+#'
+#' @return Updated model object with fitted delta and log-likelihood
+#' @export
+fit_mixture_model <- function(model, optimizer = "EM", ...) {
+  features <- do.call(rbind, model$df$features)
+  cdl <- model$df$likelihood %*% t(model$components)
+  
+  if (optimizer == "EM") {
+    result <- EM_optimize(cdl, features, model$delta, ...)
+  } else if (optimizer == "mixsqp") {
+    args <- list(...)
+    args$max_iter <- NULL
+    result <- do.call(mixsqp_optimize, c(list(cdl = cdl, features = features), args))
+  } else {
+    stop("Unknown optimizer: ", optimizer)
+  }
+  
+  model$delta <- result$delta
+  model$ll <- result$ll
   return(model)
 }
 
