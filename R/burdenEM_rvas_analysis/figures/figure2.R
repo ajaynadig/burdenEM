@@ -73,10 +73,10 @@ load_aou_genebass_enrichment_data <- function(){
     aou_h2 %>% mutate(label = '3') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_3, enrichment_lower = enrichment_CI_lower_3, enrichment_upper = enrichment_CI_upper_3),
     aou_h2 %>% mutate(label = '4') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_4, enrichment_lower = enrichment_CI_lower_4, enrichment_upper = enrichment_CI_upper_4),
     aou_h2 %>% mutate(label = '5') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_5, enrichment_lower = enrichment_CI_lower_5, enrichment_upper = enrichment_CI_upper_5),
-    genebass_h2 %>% mutate(label = '1', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_1, enrichment_lower = enrichment_CI_lower_1, enrichment_upper = enrichment_CI_upper_5),
-    genebass_h2 %>% mutate(label = '2', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_2, enrichment_lower = enrichment_CI_lower_2, enrichment_upper = enrichment_CI_upper_5),
-    genebass_h2 %>% mutate(label = '3', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_3, enrichment_lower = enrichment_CI_lower_3, enrichment_upper = enrichment_CI_upper_5),
-    genebass_h2 %>% mutate(label = '4', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_4, enrichment_lower = enrichment_CI_lower_4, enrichment_upper = enrichment_CI_upper_5),
+    genebass_h2 %>% mutate(label = '1', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_1, enrichment_lower = enrichment_CI_lower_1, enrichment_upper = enrichment_CI_upper_1),
+    genebass_h2 %>% mutate(label = '2', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_2, enrichment_lower = enrichment_CI_lower_2, enrichment_upper = enrichment_CI_upper_2),
+    genebass_h2 %>% mutate(label = '3', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_3, enrichment_lower = enrichment_CI_lower_3, enrichment_upper = enrichment_CI_upper_3),
+    genebass_h2 %>% mutate(label = '4', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_4, enrichment_lower = enrichment_CI_lower_4, enrichment_upper = enrichment_CI_upper_4),
     genebass_h2 %>% mutate(label = '5', ancestry = 'genebass') %>% select(annotation, phenotype, ancestry, label, enrichment = enrichment_5, enrichment_lower = enrichment_CI_lower_5, enrichment_upper = enrichment_CI_upper_5)
   )
   return(enrichment)

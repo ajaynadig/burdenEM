@@ -48,7 +48,8 @@ fit_burdenem_model <- function(
     },
     h2_function = function(beta, row) beta^2,
     num_positive_components = 10,
-    drop_columns = c("effect_estimate", "effect_se")
+    drop_columns = c(),
+    optimizer = "EM"
 ) {
 
     # --- Initialize Grid-Based BurdenEM Model ---

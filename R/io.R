@@ -157,9 +157,20 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
 
       tryCatch({
           # Read file, explicitly trying to read trait_type as character
-          data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
-                                                                                             description = 'c', CHR = 'c' , trait_type = 'c',
-                                                                                             .default = "d")) # Guess others
+          if(grepl('meta', file_path)){
+            data <- read_delim(file_path) # Guess others
+          }else{
+            data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
+                                                                                               description = 'c', CHR = 'c' , trait_type = 'c',
+                                                                                               .default = "d")) # Guess others
+          }
+          if(!'dataset' %in% colnames(data)){
+            print('Adding column `dataset` to variant data...')
+            datasets <- c('genebass', 'aou_afr', 'aou_eur', 'aou_amr')
+            dataset <- datasets[ sapply(datasets, grepl, x = file_path)]
+            data <- data %>%
+              dplyr::mutate(dataset = dataset)
+          }
 
           if (nrow(data) > 0) {
 
@@ -220,7 +231,7 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
 
              } else { # Continuous
                 data <- data %>%
-                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Select final columns
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category", "dataset", "N"))) # Select final columns
              }
              # -------------------------------- #
              data

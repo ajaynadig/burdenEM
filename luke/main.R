@@ -74,7 +74,7 @@ run_burdenEM_rvas <- function(
         # data_name and pheno arguments removed
         annotations_to_process = c(annotation_to_process),
         frequency_range = frequency_range
-    )
+    ) %>% distinct()
     if(verbose) message(paste("Successfully loaded", nrow(variant_data), "variants."))
 
     # --- Detect Trait Type ---
@@ -254,7 +254,8 @@ run_burdenEM_rvas <- function(
         num_iter = num_iter,
         per_allele_effects = per_allele_effects, 
         drop_columns = current_drop_columns, 
-        verbose = verbose
+        verbose = verbose,
+        optimizer = optimizer
     )
     burdenem_model$pval_function <- pval_function
     burdenem_model$get_power_function <- get_power_function
