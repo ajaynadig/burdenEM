@@ -78,7 +78,7 @@ fit_burdenem_model <- function(
     # --- Fit Model using new EM ---
     if(verbose) message("\n--- Running EM Fit (grid) ---")
 
-    burdenem_model <- EM_fit_grid(burdenem_model, max_iter = num_iter)
+    burdenem_model <- fit_mixture_model(burdenem_model, optimizer = optimizer, max_iter = num_iter)
 
     burdenem_model$information <- information_matrices(burdenem_model)
 

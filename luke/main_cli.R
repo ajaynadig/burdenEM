@@ -67,7 +67,9 @@ option_list = list(
         help="Name for the output directory. Overrides the directory in the studies file.", metavar="character"),
     make_option(c("--skip_existing"), action="store_true", default=FALSE, help="Skip studies whose output .rds already exists (after applying --name and <ANNOTATION>)."),
     make_option(c("--intercept_frequency_bin_edges"), type="character", default="0,1e-5,1e-4,1e-3",
-        help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character")
+        help="Comma-separated string of AF bin edges for intercept calculation (e.g., '0,1e-5,1e-4,1e-3')", metavar="character"),
+    make_option(c("--optimizer"), type="character", default="EM",
+        help="Optimization method: 'EM' or 'mixsqp' [default: %default]", metavar="character")
 )
 
 opt_parser = OptionParser(option_list=option_list, usage = "%prog [options] studies_file")
@@ -162,7 +164,8 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
         frequency_range = freq_range_cli, 
         intercept_frequency_bin_edges = icept_freq_bins_cli,
         verbose = opt_config$verbose,
-        binary_trait_model_type = opt_config$binary_trait_model_type
+        binary_trait_model_type = opt_config$binary_trait_model_type,
+        optimizer = opt_config$optimizer
     )
 
     run_args <- run_args[!sapply(run_args, is.null)]

@@ -63,7 +63,8 @@ run_burdenEM_rvas <- function(
     verbose = FALSE,
     per_allele_effects = FALSE,
     correct_for_ld = FALSE,
-    binary_trait_model_type = "betabinom"
+    binary_trait_model_type = "betabinom",
+    optimizer = "EM"
 ) {
 
     # --- 1. Load Variant-Level Data ---
