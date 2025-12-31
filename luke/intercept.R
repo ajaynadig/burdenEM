@@ -25,16 +25,16 @@ calculate_delta_values <- function(beta_per_sd, burden_weight) {
   return(delta)
 }
 
-# --- Prepare Data for BurdenEM --- 
+# --- Prepare Data for BurdenEM ---
 
 #' Prepare Gene-Level Data for BurdenEM Model Input
 #'
-#' Selects and renames columns from the gene-level data frame to match the 
+#' Selects and renames columns from the gene-level data frame to match the
 #' expected input format for the BurdenEM model functions.
 #'
-#' @param gene_level_df A data frame containing gene-level aggregated data. 
+#' @param gene_level_df A data frame containing gene-level aggregated data.
 #'                      Must include 'gamma_per_sd' and 'gene_intercept' columns.
-#' @return A data frame with columns 'effect_estimate' (from 'gamma_per_sd') and 
+#' @return A data frame with columns 'effect_estimate' (from 'gamma_per_sd') and
 #'         'effect_se' (from 'gene_intercept'), along with all other columns from the input.
 #' @importFrom dplyr %>% mutate select any_of
 #' @export
@@ -45,28 +45,28 @@ specify_gene_effect_sizes <- function(gene_level_df, per_allele_effects=FALSE, c
     }
 
     if (correct_for_ld) {
-        gene_level_df <- gene_level_df %>% 
+        gene_level_df <- gene_level_df %>%
               dplyr::mutate(
                   ld_correction_factor = ifelse(is.na(burden_score_ld) | burden_score_ld == 0, 1, burden_score_ld / burden_score_no_ld),
-                  gamma_per_sd = gamma_per_sd / sqrt(ld_correction_factor), 
+                  gamma_per_sd = gamma_per_sd / sqrt(ld_correction_factor),
                   burden_score = burden_score * ld_correction_factor
-              ) 
+              )
     }
     message("Mean LD correction factor: ", mean(gene_level_df$ld_correction_factor, na.rm = TRUE))
 
 
     # Create the effect estimate and standard error columns
     if (per_allele_effects) {
-          gene_level_df <- gene_level_df %>% 
+          gene_level_df <- gene_level_df %>%
               dplyr::mutate(
-                  effect_estimate = gamma_per_sd / sqrt(burden_score), 
+                  effect_estimate = gamma_per_sd / sqrt(burden_score),
                   effect_se = sqrt(gene_intercept / burden_score)
-              ) 
+              )
     }
     else{
-          gene_level_df <- gene_level_df %>% 
+          gene_level_df <- gene_level_df %>%
               dplyr::mutate(
-                  effect_estimate = gamma_per_sd, 
+                  effect_estimate = gamma_per_sd,
                   effect_se = sqrt(gene_intercept)
               )
         }
@@ -103,7 +103,7 @@ calculate_variant_intercept <- function(variant_data, frequency_bin_edges) {
   # --- Calculate Intercepts per Bin ---
   # Group and calculate weighted averages
   intercept_calc <- variant_data %>%
-    dplyr::group_by(gene, functional_category, frequency_bin) %>%
+    dplyr::group_by(gene, functional_category, frequency_bin, dataset) %>% # TODO: changed
     dplyr::summarise(
       gamma_per_allele = sum(beta_per_sd * sqrt(variant_variance)) / sum(variant_variance),
       beta_centered = beta_per_sd - gamma_per_allele * sqrt(variant_variance),
@@ -112,15 +112,15 @@ calculate_variant_intercept <- function(variant_data, frequency_bin_edges) {
       variance = ifelse(n_variants > 1, variance, 0), # degrees of freedom are n_variants-1
       .groups = 'drop'
     )
-  
+
   # Aggregate genes
   intercept_summary <- intercept_calc %>%
-    dplyr::group_by(functional_category, frequency_bin) %>%
+    dplyr::group_by(functional_category, frequency_bin, dataset) %>% # TODO: changed
     dplyr::summarise(
       intercept = sum(variance * (n_variants - 1)) / sum(n_variants - 1),
       .groups = 'drop'
     )%>%
-    dplyr::select(functional_category, frequency_bin, intercept) %>%
+    dplyr::select(functional_category, frequency_bin, intercept, dataset) %>%
     dplyr::arrange(functional_category, frequency_bin)
 
   # Check for any NA intercepts which might indicate issues

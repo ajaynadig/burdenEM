@@ -75,7 +75,7 @@ run_burdenEM_rvas <- function(
         # data_name and pheno arguments removed
         annotations_to_process = c(annotation_to_process),
         frequency_range = frequency_range
-    )
+    ) %>% distinct()
     if(verbose) message(paste("Successfully loaded", nrow(variant_data), "variants."))
 
     # --- Detect Trait Type ---

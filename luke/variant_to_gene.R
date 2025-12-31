@@ -43,27 +43,43 @@ process_variant_to_gene <- function(variant_data, frequency_bin_edges) {
   variant_data <- variant_data %>%
     dplyr::mutate(
       frequency_bin = cut(AF, breaks = frequency_bin_edges, labels = freq_labels, right = FALSE, include.lowest = TRUE)
-    ) %>% 
+    ) %>%
     dplyr::filter(!is.na(frequency_bin)
     ) %>%
-      dplyr::left_join(intercept_summary %>% select(functional_category, frequency_bin, intercept), 
-                       by = c("functional_category", "frequency_bin"))
+      dplyr::left_join(intercept_summary %>% select(functional_category, frequency_bin, intercept, dataset),
+                       by = c("functional_category", "frequency_bin", "dataset"))
 
   # --- 3. Group by Gene and Summarize ---
   message("Aggregating results per gene...")
+  N_summary <- variant_data %>%
+    dplyr::group_by(dataset) %>%
+    dplyr::summarize(sample_size = mean(N),
+                     mean_intercept = mean(intercept),
+                     var_beta_sd = var(beta_per_sd),
+                     mean_vv = mean(variant_variance))
+  N_total <- sum(N_summary$sample_size)
+  print(paste0('N total:', N_total))
   gene_level_summary <- variant_data %>%
+    mutate(variant_variance_N = variant_variance*N) %>% # TODO: Changed
     dplyr::group_by(gene, functional_category) %>%
     dplyr::summarize(
-      gamma_per_sd = sum(beta_per_sd * sqrt(variant_variance)),
-      burden_score = sum(variant_variance),
-      gene_intercept = sum(intercept * variant_variance),
+      b = sum(beta * variant_variance_N),
+      c = sum(variant_variance_N),
+      burden_score = sum(variant_variance_N)/N_total,
+      d = sum(intercept * variant_variance_N*N),
       n_variants = n(),
       .groups = 'drop'
     ) %>%
     dplyr::mutate(
-      gamma_per_sd = if_else(burden_score > 0, gamma_per_sd / sqrt(burden_score), 0),
-      gene_intercept = if_else(burden_score > 0, gene_intercept / burden_score, 0)
-    )
+      gamma = b/c,
+      gamma_per_sd = gamma*sqrt(burden_score),
+      gene_intercept = if_else(burden_score > 0, d / (c*N_total), 0)
+    ) %>%
+    select(-b, -c, -d)
+
+  print(summary(gene_level_summary))
+  print(var(gene_level_summary$gamma_per_sd))
+  print(N_summary)
 
   # Select final columns and ungroup
   gene_level_summary <- gene_level_summary %>%
@@ -172,11 +188,11 @@ process_variant_to_gene_binary <- function(variant_data_with_ll) {
 #'
 #' Aggregates variant data to gene level, calculating sums needed for Poisson model.
 #'
-#' @param variant_data Data frame containing variant-level data. Must include 
+#' @param variant_data Data frame containing variant-level data. Must include
 #'   'gene', 'functional_category', 'AF', 'AC_cases', 'N', 'variant_variance'.
 #' @param prevalence Numeric, the trait prevalence.
-#' @return A data frame summarized at the gene x category level with columns: 
-#'   'gene', 'functional_category', 'burden_score', 'n_variants', 'CAC_cases', 
+#' @return A data frame summarized at the gene x category level with columns:
+#'   'gene', 'functional_category', 'burden_score', 'n_variants', 'CAC_cases',
 #'   'CAF', 'N', 'prevalence'.
 #' @importFrom dplyr %>% group_by summarize ungroup n mutate filter first
 #' @export
@@ -191,25 +207,25 @@ process_variant_to_gene_poisson <- function(variant_data, prevalence) {
      if (is.null(prevalence)){
         stop("Prevalence parameter is required for Poisson aggregation.")
     }
-    
-    # --- Aggregate to Gene Level for Poisson --- 
+
+    # --- Aggregate to Gene Level for Poisson ---
     message("Aggregating variant data to gene level for Poisson likelihood.")
 
-    gene_level_aggregation <- variant_data %>% 
-        dplyr::filter(!is.na(gene)) %>% 
-        dplyr::group_by(gene, functional_category) %>% 
+    gene_level_aggregation <- variant_data %>%
+        dplyr::filter(!is.na(gene)) %>%
+        dplyr::group_by(gene, functional_category) %>%
         dplyr::summarize(
-            burden_score = sum(variant_variance, na.rm = TRUE), 
+            burden_score = sum(variant_variance, na.rm = TRUE),
             n_variants = n(),
             CAC_cases = sum(AC_cases, na.rm = TRUE),
             CAF = sum(AF, na.rm = TRUE),
             N = first(N), # Assume N is constant within group
             .groups = 'drop'
-        ) %>% 
+        ) %>%
         dplyr::mutate(prevalence = prevalence)
 
-    # --- Filtering --- 
-    gene_level_final <- gene_level_aggregation %>% 
+    # --- Filtering ---
+    gene_level_final <- gene_level_aggregation %>%
         dplyr::filter(n_variants > 0 & burden_score > 0 & CAF > 0 & N > 0) # Filter required fields for lambda calc
 
     return(gene_level_final)
