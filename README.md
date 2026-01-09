@@ -1,7 +1,3 @@
-We are developing two tools, burdenEM-trio and burdenEM-RVAS.
-
-For the manual for burdenEM-trio (i.e. Nadig et al, in prep), please see the [wiki tab](https://github.com/ajaynadig/burdenEM/wiki)
-
 # burdenEM RVAS
 
 This repository implements a method for estimating the distribution of burden effect sizes from rare variant association statistics, and calculating downstream estimators. A typical workflow is to (1) fit mixture models for some set of traits, and (2) calculate a downstream estimator. Step (1) requires (a) a `studies.tsv` file listing the traits/datsets to be analyzed, (b) a `genes.tsv` file containing gene annotations and possibly LD-corrected burden scores, and (c) one or more `sumstats.txt.bgz` files containing the variant-level summary statistics for each dataset. It computes a `.rds` file containing the fitted model for each row of `studies.tsv`. Step (2) requires (a) the same `studies.tsv` file, and (b) the `.rds` files. 
@@ -10,18 +6,18 @@ For example:
 
 ```bash
 # Step (1)
-Rscript luke/main_cli.R data/my.studies.tsv --annotation pLoF --genes_file data/my.genes.txt
+Rscript src/cli/fit_models.R data/my.studies.tsv --annotation pLoF --genes_file data/my.genes.txt
 
 # Step (2)
-Rscript luke/cli.R heritability data/my.studies.tsv --annotation pLoF
+Rscript src/cli/analyze.R heritability data/my.studies.tsv --annotation pLoF
 
 # or:
-Rscript luke/cli.R effect_replication data/my.studies.tsv --primary_dataset genebass -a pLoF
+Rscript src/cli/analyze.R effect_replication data/my.studies.tsv --primary_dataset genebass -a pLoF
 ```
 
 ## CLI
 
- The CLI has two commands, `luke/main_cli.R` and `luke/cli.R`, for steps 1 and 2 respectively.
+ The CLI has two commands, `src/cli/fit_models.R` and `src/cli/analyze.R`, for steps 1 and 2 respectively.
 
 ### Step 1 options
 Positional arguments:
