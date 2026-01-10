@@ -17,7 +17,7 @@ suppressPackageStartupMessages(library(furrr))
 suppressPackageStartupMessages(library(readr))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(tibble))
-source("src/estimation/model.R")
+source("R/estimation/model.R")
 
 # --- Utility Functions ---
 # Helper function for binomial confidence intervals using the Clopper-Pearson exact method

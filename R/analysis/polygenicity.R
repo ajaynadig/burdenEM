@@ -22,7 +22,7 @@ library(purrr) # For bind_rows
 
 # --- Helper function to process a single study for polygenicity --- 
 process_single_study_for_polygenicity <- function(study_row, current_annotation, current_verbose) {
-  source("src/estimation/model.R") # Source here for furrr workers
+  source("R/estimation/model.R") # Source here for furrr workers
   if (current_verbose) {
     message(sprintf("Processing polygenicity for study: %s, dataset: %s, trait_type: %s, annotation: %s", 
                     study_row$abbreviation, study_row$dataset, study_row$trait_type, current_annotation))
@@ -74,6 +74,10 @@ effective_polygenicity <- function(model) {
 
 
 effective_mutational_polygenicity <- function(model) {
+  # Check if lof.mu column exists in the model data
+  if (is.null(model$df) || !"lof.mu" %in% names(model$df)) {
+    return(list(mean = NA_real_, se = NA_real_))
+  }
 
   # Mutational variance, as opposed to heritability, contributed by each gene
   mutational_h2_function <- function(x,row) {
@@ -91,6 +95,10 @@ effective_mutational_polygenicity <- function(model) {
 }
 
 effective_effect_var_polygenicity <- function(model) {
+  # Skip if model doesn't have to_per_allele_effects method
+  if (is.null(model$to_per_allele_effects) || !is.function(model$to_per_allele_effects)) {
+    return(list(mean = NA_real_, se = NA_real_))
+  }
 
   # Mutational variance, as opposed to heritability, contributed by each gene
   effect_var_function <- function(x,row) {

@@ -1,26 +1,5 @@
 #Functions for input/output and data preprocessing
 
-process_data_trio <- function(input_data,
-                              features) {
-
-  if (!is.null(input_data$case_rate)) {
-    input_data$expected_count = 2 * input_data$N * input_data$case_rate
-  }
-
-  if (any(is.na(input_data))) {
-    stop("NAs present in input data, please check")
-  } else if ( !is.null(features) & any(is.na(features))) {
-    stop("NAs present in features, please check")
-  }
-
-  if (!is.null(features) & !(all(rownames(input_data) == rownames(features)))) {
-    stop("features rownames do not match input data rownames, please check")
-  }
-
-
-  return(input_data)
-}
-
 process_data_rvas <- function(input_data,
                               features){
 
@@ -157,20 +136,9 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
 
       tryCatch({
           # Read file, explicitly trying to read trait_type as character
-          if(grepl('meta', file_path)){
-            data <- read_delim(file_path) # Guess others
-          }else{
-            data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
-                                                                                               description = 'c', CHR = 'c' , trait_type = 'c',
-                                                                                               .default = "d")) # Guess others
-          }
-          if(!'dataset' %in% colnames(data)){
-            print('Adding column `dataset` to variant data...')
-            datasets <- c('genebass', 'aou_afr', 'aou_eur', 'aou_amr')
-            dataset <- datasets[ sapply(datasets, grepl, x = file_path)]
-            data <- data %>%
-              dplyr::mutate(dataset = dataset)
-          }
+          data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
+                                                                                             description = 'c', CHR = 'c' , trait_type = 'c',
+                                                                                             .default = "d")) # Guess others
 
           if (nrow(data) > 0) {
 
@@ -231,7 +199,7 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
 
              } else { # Continuous
                 data <- data %>%
-                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category", "dataset", "N"))) # Select final columns
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category"))) # Select final columns
              }
              # -------------------------------- #
              data

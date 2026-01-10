@@ -15,15 +15,15 @@ library(tidyr)
 options(vroom.show_problems = FALSE)
 
 # --- Source Required Functions ---
-source("src/io/io.R")
-source("src/estimation/intercept.R")
-source("src/io/variant_to_gene.R")
-source("src/estimation/model.R")
-source("src/estimation/likelihoods.R")
-source("src/estimation/em.R") # Source for EM_fit
-source("src/estimation/gene_features.R") # Source for get_bins
-source("src/estimation/fit_burdenem.R") # Source for fit_burdenem_model
-source("src/estimation/binary_traits.R") 
+source("R/io/io.R")
+source("R/estimation/intercept.R")
+source("R/io/variant_to_gene.R")
+source("R/estimation/model.R")
+source("R/estimation/likelihoods.R")
+source("R/estimation/em.R") # Source for EM_fit
+source("R/estimation/gene_features.R") # Source for get_bins
+source("R/estimation/fit_burdenem.R") # Source for fit_burdenem_model
+source("R/estimation/binary_traits.R") 
 
 
 #' Run BurdenEM RVAS Workflow
@@ -54,7 +54,7 @@ run_burdenEM_rvas <- function(
     annotation_to_process='pLoF',
     intercept_frequency_bin_edges = c(0, 1e-5,1e-4, 1e-3),
     frequency_range = c(0, 0.001),
-    feature_col_name = "lof.oe",
+    feature_col_name = NULL,
     num_feature_bins = 5,
     num_positive_components = 10,
     burdenem_grid_size = 4,
@@ -86,6 +86,7 @@ run_burdenEM_rvas <- function(
 
 
     # --- 2. Load LD-Corrected Burden Scores ---
+    ld_corrected_scores_df <- NULL  # Initialize to NULL
     if(!is.null(ld_corrected_scores_file)){ # Do not change this to 'if correct_for_ld'
       if(verbose) message("\n--- Loading LD-Corrected Burden Scores ---")
       lower_fmt <- format(frequency_range[1], nsmall=1, scientific=FALSE)

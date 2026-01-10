@@ -19,7 +19,7 @@ library(furrr)
 # readr could be removed if studies_df is always pre-loaded
 # library(readr) 
 
-source("src/analysis/heritability_core.R")
+source("R/analysis/heritability_core.R")
 
 # Helper function to process a single study row for heritability estimation
 process_single_study_for_heritability <- function(study_row, current_annotation, current_verbose) {

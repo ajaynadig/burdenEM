@@ -18,7 +18,7 @@ suppressPackageStartupMessages(library(stringr))
 library(tibble) # For as_tibble, if needed, or for general tibble operations
 
 # --- Source custom distribution functions ---
-source("src/analysis/distribution_functions.R")
+source("R/analysis/distribution_functions.R")
 
 calculate_estimated_distribution <- function(study_row, current_annotation, current_verbose, gene_proportions, gene_counts=NULL) {
   model_filename_pattern <- study_row$model_filename

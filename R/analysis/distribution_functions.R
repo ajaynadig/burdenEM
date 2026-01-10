@@ -1,5 +1,5 @@
 # luke/distribution_functions.R
-source("src/estimation/model.R")
+source("R/estimation/model.R")
 
 #' PMF of the effect size distribution over genes evaluated at grid points
 #'

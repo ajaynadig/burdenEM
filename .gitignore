@@ -13,9 +13,11 @@ old/*
 .python-version
 Python/__pycache__/*
 .windsurfrules
-R/.Rapp.history
+**/.Rapp.history
 data/*
 figures/*
 tables/*
 luke_old/*
 *.sh
+example/*
+simulations/*

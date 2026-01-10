@@ -63,7 +63,11 @@ estimate_heritability_rvas <- function(model,
 
 }
 
+<<<<<<<< Updated upstream:src/analysis/heritability_core.R
 source("src/estimation/model.R")
+========
+source("R/estimation/model.R")
+>>>>>>>> Stashed changes:R/analysis/heritability_core.R
 #' Estimate heritability explained by genes with effects below a threshold
 #' @param model Fitted burdenEM model.
 #' @param threshold Numeric threshold for effect size.

@@ -8,7 +8,7 @@ suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(tibble))
 suppressPackageStartupMessages(library(furrr))
 suppressPackageStartupMessages(library(future))
-source("src/estimation/model.R") 
+source("R/estimation/model.R") 
 
 
 compute_effect_replication_metrics_for_pair <- function(primary_model, replication_model, verbose = FALSE) {
