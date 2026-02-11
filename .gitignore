@@ -19,3 +19,7 @@ figures/*
 tables/*
 luke_old/*
 *.sh
+
+# Claude Code (project-local context)
+notebook/
+CLAUDE.md
