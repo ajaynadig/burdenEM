@@ -133,6 +133,17 @@ initialize_grid_model <- function(gene_data,
     likelihood_fn(gene_data[i, ], grid_effects)
   }))
 
+  # 2b. Check for genes with all-zero likelihoods
+  zero_likelihood_genes <- which(rowSums(likelihood) == 0)
+  if (length(zero_likelihood_genes) > 0) {
+    gene_names <- if ("gene" %in% names(gene_data)) gene_data$gene[zero_likelihood_genes]
+                  else if ("gene_id" %in% names(gene_data)) gene_data$gene_id[zero_likelihood_genes]
+                  else zero_likelihood_genes
+    stop(paste0(length(zero_likelihood_genes), " gene(s) have zero likelihood under all grid effects: ",
+                paste(head(gene_names, 10), collapse = ", "),
+                if (length(zero_likelihood_genes) > 10) paste0(", ... (", length(zero_likelihood_genes) - 10, " more)")))
+  }
+
   # 3. Ensure 'features' column exists
   if (!"features" %in% colnames(gene_data)) {
     gene_data$features <- rep(1, n_genes)
@@ -256,7 +267,12 @@ grid_posterior <- function(model){
   Fmat <- do.call(rbind, model$df$features)       # genes x features
   weights_grid <- Fmat %*% model$delta %*% model$components  # genes x grid
   unnorm_post <- weights_grid * model$df$likelihood          # element-wise
-  post <- unnorm_post / rowSums(unnorm_post)
+  row_totals <- rowSums(unnorm_post)
+  if (any(row_totals == 0)) {
+    stop(paste0("grid_posterior: ", sum(row_totals == 0),
+                " gene(s) have zero likelihood under all grid effects."))
+  }
+  post <- unnorm_post / row_totals
   return(post)
 }
 
@@ -302,7 +318,13 @@ responsibilities <- function(model) {
   weights <- mixture_weights(model)
   cdl <- complete_data_likelihoods(model)
   assignments <- cdl * weights
-  return (assignments / rowSums(assignments))
+  row_totals <- rowSums(assignments)
+  if (any(row_totals == 0)) {
+    stop(paste0("responsibilities: ", sum(row_totals == 0),
+                " gene(s) have zero likelihood under all components."))
+  }
+  result <- assignments / row_totals
+  return(result)
 }
 
 #' Calculate Conditional Expectation of a Function Given Component Assignment
@@ -352,9 +374,11 @@ complete_data_means <- function(model,  function_to_integrate = function(beta) b
     numerator <- (model$df$likelihood %*% diag(fvals_vec)) %*% t(model$components)
   }
 
+  if (any(denominator == 0)) {
+    stop(paste0("complete_data_means: ", sum(denominator == 0),
+                " gene(s) have zero likelihood under all components."))
+  }
   result <- numerator / denominator
-  result[denominator == 0] <- 0
-
   return(result)
 }
 
@@ -368,7 +392,13 @@ posterior_expectation2 <- function(model, function_to_integrate = function(x) x)
     weights <- mixture_weights(model)
     cd_means <- complete_data_means(model, function_to_integrate)
     cd_likelihoods <- complete_data_likelihoods(model)
-    return(rowSums(cd_means * cd_likelihoods * weights) / rowSums(cd_likelihoods * weights))
+    denom <- rowSums(cd_likelihoods * weights)
+    if (any(denom == 0)) {
+      stop(paste0("posterior_expectation2: ", sum(denom == 0),
+                  " gene(s) have zero likelihood under all components."))
+    }
+    result <- rowSums(cd_means * cd_likelihoods * weights) / denom
+    return(result)
 }
 
 #' Compute mean and standard error of a posterior mean summed across genes
@@ -393,6 +423,10 @@ posterior_expectation_with_se <- function(model,
     cd_likelihoods <- complete_data_likelihoods(model)
     likelihoods <- rowSums(cd_likelihoods * weights)
 
+    if (any(likelihoods == 0)) {
+      stop(paste0("posterior_expectation_with_se: ", sum(likelihoods == 0),
+                  " gene(s) have zero likelihood under all components."))
+    }
     means <- rowSums(cd_means * cd_likelihoods * weights) / likelihoods
     # entry i,k: d/dw_k E(f(beta_i)) = d/dw_k E(cd_means[i,z_i])
     derivatives <- (cd_likelihoods / likelihoods) * (cd_means - means)

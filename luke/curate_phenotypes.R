@@ -11,10 +11,10 @@ phecode_info <- read_csv('data/phenotype/phecodeX_info.csv')
 aou_info <- read_tsv('data/phenotype/aou_v8_phenotype_info_qced_with_meta.tsv')  %>%
   filter(ancestry == 'META' & pheno_sex == 'both') %>%
   merge(., phecode_info %>% select(phenoname=phecode), by = 'phenoname', all.x=T) %>%
-  select(phenoname, category, disease_category, n_cases_aou = n_cases, n_controls_aou = n_controls) %>%
+  select(phenoname, disease_category, n_cases_aou = n_cases, n_controls_aou = n_controls) %>%
   distinct()
 
-full_mapped <- read_tsv('data/phenotype/aou_ukb_matched_all_phenotype_v8.csv') %>%
+full_mapped <- read_tsv('data/aou_ukb_matched_all_phenotype_v8.csv') %>%
   merge(., genebass_info %>% mutate(n_controls_ukb = if_else(is.na(n_controls), 0, n_controls)) %>% select(ukb_phenocode=phenocode, n_cases_ukb = n_cases, n_controls_ukb), by = 'ukb_phenocode' ) %>%
   merge(., aou_info, by = 'phenoname' )  %>%
   mutate(prevalence_aou = n_cases_aou/(n_cases_aou + n_controls_aou),
@@ -66,7 +66,6 @@ phenotype_info_mapped <- phenotype_info_filtered %>%
   left_join(pheno_map, by = c("phenoname" = "aou_code"))
 
 # Define target datasets
-# target_datasets <- c('genebass', 'aou_afr', 'aou_amr', 'aou_eas', 'aou_sas', 'aou_eur')
 target_datasets <- c('genebass', 'aou_afr', 'aou_amr', 'aou_eur', 'aou_meta', 'biobank_meta')
 
 # Process the phenotype information
@@ -108,3 +107,53 @@ studies_data <- phenotype_info_mapped %>%
 write_tsv(studies_data, output_tsv_path)
 
 message(sprintf("Successfully generated %s with %d rows.", output_tsv_path, nrow(studies_data)))
+
+
+# Define input and output file paths
+input_csv_path <- path.expand('data/phenotype/aou_v8_phenotype_info_qced_with_meta.tsv')
+output_tsv_path <- "data/aou.random.selected.studies.tsv"
+
+# Filter for specified aou_phenotypes
+phenotype_info_filtered <- phenotype_info_raw %>%
+  dplyr::filter(phenoname %in% c('random_0.5_continuous_1', 'random_0.5_0.5_1', 'random_0.5_0.2_1',
+                                 'random_0.5_0.1_1','random_0.5_0.05_1', 'random_0.5_0.02_1',
+                                 'random_0.5_0.01_1','random_0.5_0.001_1', 'random_0.5_1e-04_1'))
+
+# Define target datasets
+target_datasets <- c('aou_afr', 'aou_amr', 'aou_eur', 'aou_meta')
+
+# Process the phenotype information
+studies_data <- phenotype_info_filtered %>%
+crossing(dataset = target_datasets)%>%
+  mutate(
+    identifier = phenoname, # Original 'description' from CSV (e.g., 'Height')
+    trait_type = trait_type, # Original 'trait_type' from CSV
+    # dataset column is already from crossing
+    abbreviation = phenoname, # Original 'description' from CSV, used as abbreviation
+    # description = description_more, # Original 'description_more' from CSV
+    sumstats_filename_pattern = case_when(
+      startsWith(dataset, 'aou_') ~ sprintf("data/var_txt/^%s_%s_<ANNOTATION>_.*\\.txt\\.bgz$", dataset, phenoname),
+      TRUE ~ NA_character_
+    ),
+    model_filename = case_when(
+      startsWith(dataset, 'aou_') ~ sprintf("fitted_models/burdenEM_fit_%s_%s_<ANNOTATION>.rds", dataset, phenoname),
+      TRUE ~ NA_character_ # Should not happen
+    )
+  ) %>%
+  # Select and order final columns for studies.tsv
+  select(
+    identifier,
+    trait_type,
+    dataset,
+    description,
+    abbreviation,
+    sumstats_filename_pattern,
+    model_filename
+  ) %>%
+  distinct() # Ensure unique rows if any input phenotype might lead to identical entries after processing
+
+# Write the output to studies.tsv
+write_tsv(studies_data, output_tsv_path)
+
+message(sprintf("Successfully generated %s with %d rows.", output_tsv_path, nrow(studies_data)))
+

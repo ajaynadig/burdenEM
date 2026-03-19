@@ -44,6 +44,16 @@ source("luke/binary_trait_likelihood.R")
 #' @param frequency_range Numeric vector c(min, max) for AF range filter [min,max). Default: c(0, 0.001).
 #' @param per_allele_effects Logical, whether to calculate per-allele effect sizes instead of per-gene. Default: FALSE.
 #' @param correct_for_ld Logical, whether to apply LD correction to burden scores and gamma. Default: FALSE.
+#' @param removed_variants_file Optional: file(s) listing variants to remove for LD pruning
+#'   (binary traits only). Each file must have a \code{locus} (chr:pos) or \code{SNP}
+#'   (chr:pos:ref:alt) column. Two forms:
+#'   \itemize{
+#'     \item Single path (character): applied to all variants regardless of cohort.
+#'     \item Named list: per-cohort pruning for meta-analysis. Keys must match the
+#'       \code{dataset} column in the variant data (e.g.,
+#'       \code{list(aou_afr = "afr_removed.tsv", aou_eur = "eur_removed.tsv")}).
+#'   }
+#'   Default: NULL.
 #' @return A list object representing the fitted BurdenEM model.
 #' @export
 run_burdenEM_rvas <- function(
@@ -63,6 +73,7 @@ run_burdenEM_rvas <- function(
     verbose = FALSE,
     per_allele_effects = FALSE,
     correct_for_ld = FALSE,
+    removed_variants_file = NULL,
     binary_trait_model_type = "betabinom",
     optimizer = "EM"
 ) {
@@ -84,8 +95,53 @@ run_burdenEM_rvas <- function(
     trait_type <- if(is_binary) "binary" else "continuous"
     message(paste("Detected trait type:", trait_type))
 
+    # --- 2. LD-Prune Variants for Binary Traits ---
+    # removed_variants_file: single path (applied to all variants) or named list
+    # mapping dataset -> path (per-cohort pruning for meta-analysis)
+    if (!is.null(removed_variants_file) && is_binary) {
+        if(verbose) message("\n--- LD-Pruning Variants for Binary Trait ---")
 
-    # --- 2. Load LD-Corrected Burden Scores ---
+        # Helper: read a removed-variants file and return locus vector
+        .read_removed_loci <- function(filepath) {
+            df <- data.table::fread(filepath)
+            if ("locus" %in% names(df)) return(df$locus)
+            if ("SNP" %in% names(df)) return(sub("^([^:]+:[^:]+):.*", "\\1", df$SNP))
+            stop(paste("Cannot identify locus column in:", filepath, "— expected 'locus' or 'SNP'."))
+        }
+
+        # Construct .locus column for matching
+        has_chr_pos <- all(c("CHR", "POS") %in% names(variant_data))
+        has_locus <- "locus" %in% names(variant_data)
+        if (!has_chr_pos && !has_locus) {
+            stop("Cannot construct locus for variant filtering. Need CHR+POS or locus columns.")
+        }
+        variant_data <- variant_data %>%
+            dplyr::mutate(.locus = if (has_chr_pos) paste0(CHR, ":", POS) else locus)
+
+        original_count <- nrow(variant_data)
+
+        if (is.list(removed_variants_file)) {
+            # Named list: per-cohort pruning (e.g., list(aou_afr="path1", aou_eur="path2"))
+            if (!("dataset" %in% names(variant_data))) {
+                stop("removed_variants_file is a named list but variant_data has no 'dataset' column.")
+            }
+            for (ds in names(removed_variants_file)) {
+                removed_loci <- .read_removed_loci(removed_variants_file[[ds]])
+                variant_data <- variant_data %>%
+                    dplyr::filter(!(dataset == ds & .locus %in% removed_loci))
+            }
+        } else {
+            # Single file: applied to all variants
+            removed_loci <- .read_removed_loci(removed_variants_file)
+            variant_data <- variant_data %>%
+                dplyr::filter(!(.locus %in% removed_loci))
+        }
+
+        variant_data <- variant_data %>% dplyr::select(-.locus)
+        message(paste("LD pruning: removed", original_count - nrow(variant_data), "of", original_count, "variants"))
+    }
+
+    # --- 3. Load LD-Corrected Burden Scores (for features and continuous trait LD correction) ---
     if(!is.null(ld_corrected_scores_file)){ # Do not change this to 'if correct_for_ld'
       if(verbose) message("\n--- Loading LD-Corrected Burden Scores ---")
       lower_fmt <- format(frequency_range[1], nsmall=1, scientific=FALSE)
@@ -101,7 +157,7 @@ run_burdenEM_rvas <- function(
           "LD-corrected scores from:", dynamic_ld_scores_file))
     }
 
-    # --- 3. Process Variants to Gene-Level ---
+    # --- 4. Process Variants to Gene-Level ---
     if (verbose) message(paste("\n--- Processing Variants to Gene-Level (", trait_type, ") ---"))
     if (trait_type == "binary") {
         if (binary_trait_model_type == "betabinom") {
@@ -143,7 +199,7 @@ run_burdenEM_rvas <- function(
     }
     message(paste("Aggregated to", nrow(gene_level_data), "gene-category rows."))
 
-    # --- 4. Append LD-Corrected Scores ---
+    # --- 5. Append LD-Corrected Scores ---
     if(!is.null(ld_corrected_scores_file)){ # Do not change this to 'if correct_for_ld'
       if(verbose) message("\n--- Appending LD-Corrected Burden Scores ---")
       join_on_column_name <- "gene"
@@ -153,9 +209,15 @@ run_burdenEM_rvas <- function(
       }
       gene_level_data <- gene_level_data %>%
           left_join(ld_corrected_scores_df, by = join_on_column_name)
+
+      # For binary traits: burden_score is computed in-pipeline from (pruned) variants
+      # LD-corrected scores file is only used for feature columns (e.g., lof.oe)
+      if (trait_type == "binary") {
+          if(verbose) message("Binary trait: using in-pipeline burden_score (LD-corrected scores used for features only)")
+      }
     }
 
-    # --- 5. Specify Effect Sizes (Continuous Only) & Prepare for Model ---
+    # --- 6. Specify Effect Sizes (Continuous Only) & Prepare for Model ---
     if(trait_type == "continuous"){
         if(verbose) message("\n--- Specifying Gene Effect Sizes (Continuous) ---")
         # Pass per_allele_effects and correct_for_ld from function arguments
@@ -167,8 +229,7 @@ run_burdenEM_rvas <- function(
         if(verbose) message("\n--- Skipping Gene Effect Size Specification (Binary traits use list-columns directly) ---")
     }
 
-    # --- 6. Prepare Gene Features & Add to Gene Data ---
-    # This step uses the output 'gene_level_data' from step 3/4, independent of trait type
+    # --- 7. Prepare Gene Features & Add to Gene Data ---
     # It adds the 'features' column based on 'feature_col_name'
     if (!is.null(feature_col_name) && num_feature_bins > 1) {
         if (verbose) message(paste("\n--- Generating", num_feature_bins, "feature bins for:", feature_col_name, "---"))
@@ -183,13 +244,69 @@ run_burdenEM_rvas <- function(
         gene_level_data$features <- replicate(nrow(gene_level_data), c(1), simplify = FALSE)
     }
 
-    # --- 7. Define Likelihood Function & Fit Model ---
+    # --- 8. Validate Gene-Level Data for Binary Traits ---
+    if (trait_type == "binary") {
+        if(verbose) message("\n--- Validating Binary Trait Data ---")
+        # Check that required list columns exist and are valid
+        required_list_cols <- c("AC_cases", "expected_count", "overdispersion")
+        for (col in required_list_cols) {
+            if (!(col %in% names(gene_level_data))) {
+                stop(paste("Required column", col, "not found in gene_level_data"))
+            }
+            # Check that it's actually a list column
+            if (!is.list(gene_level_data[[col]])) {
+                stop(paste("Column", col, "is not a list column as expected"))
+            }
+            # Check for NULL or empty lists
+            n_invalid <- sum(sapply(gene_level_data[[col]], function(x) is.null(x) || length(x) == 0))
+            if (n_invalid > 0) {
+                warning(paste("Found", n_invalid, "genes with empty", col, "list. Filtering them out."))
+                gene_level_data <- gene_level_data %>%
+                    dplyr::filter(sapply(!!rlang::sym(col), function(x) !is.null(x) && length(x) > 0))
+            }
+        }
+        # Check for required list columns (per-variant N and prevalence for meta-analysis h2)
+        for (col in c("N", "prevalence")) {
+            if (!(col %in% names(gene_level_data))) {
+                stop(paste("Required column", col, "not found in gene_level_data"))
+            }
+            if (!is.list(gene_level_data[[col]])) {
+                stop(paste("Column", col, "should be a list column"))
+            }
+        }
+        # Check for required scalar columns
+        for (col in c("burden_score")) {
+            if (!(col %in% names(gene_level_data))) {
+                stop(paste("Required column", col, "not found in gene_level_data"))
+            }
+            n_na <- sum(is.na(gene_level_data[[col]]))
+            if (n_na > 0) {
+                warning(paste("Found", n_na, "genes with NA", col, ". Filtering them out."))
+                gene_level_data <- gene_level_data %>%
+                    dplyr::filter(!is.na(!!rlang::sym(col)))
+            }
+        }
+        if (nrow(gene_level_data) == 0) {
+            stop("No valid genes remaining after validation")
+        }
+        message(paste("Validation passed:", nrow(gene_level_data), "genes ready for fitting"))
+    }
+
+    # --- 9. Define Likelihood Function & Fit Model ---
     if(verbose) message("\n--- Defining Likelihood Function & Fitting Model ---")
 
     # Define likelihood_fn and h2_fn based on trait type
-    to_per_allele_effects <- ifelse(per_allele_effects, 
-                                   function(row, beta) beta,
-                                   function(row, beta) beta / sqrt(row$burden_score))
+    to_per_allele_effects <- if (per_allele_effects) {
+        function(row, beta) beta
+    } else {
+        function(row, beta) {
+            if (row[["burden_score"]] > 0) {
+                beta / sqrt(row[["burden_score"]])
+            } else {
+                rep(0, length(beta))
+            }
+        }
+    }
 
     if(trait_type == "continuous") {
         message("Using Normal likelihood for continuous trait.")
@@ -218,29 +335,29 @@ run_burdenEM_rvas <- function(
         current_drop_columns <- NULL
     } else { # Binary trait
         likelihood_function <- get_gene_likelihood(model_type = binary_trait_model_type, to_per_allele_effects = to_per_allele_effects)
-        pval_function <- function(row) ppois(row$CAC_cases, lambda = row$expected_CAC_cases, lower.tail = FALSE)
-        
+        pval_function <- function(row) ppois(row[["CAC_cases"]], lambda = row[["expected_CAC_cases"]], lower.tail = FALSE)
+
         get_power_function <- function(pval_threshold, samplesize_ratio){
             power_function <- function(beta, row) {
                 beta_per_allele <- to_per_allele_effects(row, beta)
-                mu <- samplesize_ratio * row$expected_CAC_cases
+                mu <- samplesize_ratio * row[["expected_CAC_cases"]]
                 AC_critical_upper <- qpois(pval_threshold, lambda = mu, lower.tail = FALSE)
                 AC_critical_lower <- qpois(pval_threshold, lambda = mu, lower.tail = TRUE)
                 result <- beta
                 result[beta == 0] <- 0
-                result[beta > 0] <- ppois(AC_critical_upper, lambda = mu * exp(beta[beta > 0]), lower.tail = FALSE)
-                result[beta < 0] <- ppois(AC_critical_lower, lambda = mu * exp(beta[beta < 0]), lower.tail = TRUE)
+                result[beta > 0] <- ppois(AC_critical_upper, lambda = mu * exp(beta_per_allele[beta > 0]), lower.tail = FALSE)
+                result[beta < 0] <- ppois(AC_critical_lower, lambda = mu * exp(beta_per_allele[beta < 0]), lower.tail = TRUE)
                 return(result)
             }
             return(power_function)
         }
 
-        rel_samplesize_function <- function(row) row$expected_CAC_cases
+        rel_samplesize_function <- function(row) row[["expected_CAC_cases"]]
 
         current_h2_function <- function(beta, row) {
             beta_per_allele <- to_per_allele_effects(row, beta)
-            rate_ratio <- pmin(exp(beta_per_allele), 1/row$prevalence)
-            row$prevalence / (1-row$prevalence) * row$burden_score * (rate_ratio - 1)^2 
+            rate_ratio <- pmin(exp(beta_per_allele), 1/row[["mean_prevalence"]])
+            row[["h2_numer_scale"]] * (rate_ratio - 1)^2 / row[["h2_denom"]]
         }
         current_drop_columns <- c("AC_cases", "expected_count", "overdispersion")
     }
@@ -265,7 +382,7 @@ run_burdenEM_rvas <- function(
 
     if(verbose) print(burdenem_model$delta)
 
-    # --- 8. Save Model & Data ---
+    # --- 10. Save Model & Data ---
     if(verbose) message("\n--- Saving Model & Data ---")
     # output_prefix construction removed (info now in output_file_prefix from CLI)
     # Directory creation is now handled by the CLI before calling this function

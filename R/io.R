@@ -158,11 +158,14 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
       tryCatch({
           # Read file, explicitly trying to read trait_type as character
           if(grepl('meta', file_path)){
-            data <- read_delim(file_path) # Guess others
+            data <- read_delim(file_path) # Meta files are plain CSV text
           }else{
-            data <- readr::read_tsv(file_path, show_col_types = FALSE, col_types = readr::cols(gene = "c", phenotype_key = 'c',
-                                                                                               description = 'c', CHR = 'c' , trait_type = 'c',
-                                                                                               .default = "d")) # Guess others
+            # Use fread for compressed bgz files to avoid vroom ALTREP segfaults
+            data <- tibble::as_tibble(data.table::fread(cmd = paste("zcat <", shQuote(file_path))))
+            # Ensure character columns are correct types
+            for (col in c("gene", "phenotype_key", "description", "CHR", "trait_type")) {
+              if (col %in% names(data)) data[[col]] <- as.character(data[[col]])
+            }
           }
           if(!'dataset' %in% colnames(data)){
             print('Adding column `dataset` to variant data...')
@@ -225,13 +228,13 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
              if (detected_trait_type %in% BINARY_TRAIT_TYPES) {
                 data <- data %>%
                     dplyr::mutate(expected_count = 2 * N * prevalence * AF) %>%
-                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence")))
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "expected_count", "AC_cases", "N", "functional_category", "prevalence", "dataset", "CHR", "POS")))
                   
                 message("Expected over observed AC_cases: ", mean(data$AC_cases)/mean(data$expected_count))
 
              } else { # Continuous
                 data <- data %>%
-                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category", "dataset", "N"))) # Select final columns
+                    dplyr::select(dplyr::any_of(c("gene", "AF", "beta", "variant_variance", "functional_category", "dataset", "N", "CHR", "POS"))) # Select final columns
              }
              # -------------------------------- #
              data
