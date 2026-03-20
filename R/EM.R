@@ -62,11 +62,19 @@ EM_optimize <- function(cdl, features, delta, max_iter = 1000) {
   XtX_inv <- solve(t(features) %*% features)
   ll_old <- -Inf
   ll_new <- NA
+  # Check for genes with zero likelihood under all components
+  zero_lik_genes <- rowSums(cdl) == 0
+  if (any(zero_lik_genes)) {
+    stop(paste0("EM_optimize: ", sum(zero_lik_genes),
+                " gene(s) have zero likelihood under all components. ",
+                "This should not happen with properly preprocessed data."))
+  }
   for (i in seq_len(max_iter)) {
     weights <- features %*% delta
     post <- weights * cdl
-    ll_new <- sum(log(rowSums(post)))
-    post <- post / rowSums(post)
+    row_sums <- rowSums(post)
+    ll_new <- sum(log(pmax(rowSums(weights * cdl), .Machine$double.xmin)))
+    post <- post / row_sums
     delta <- XtX_inv %*% t(features) %*% post
     ll_old <- ll_new
   }
@@ -105,13 +113,21 @@ mixsqp_optimize <- function(cdl, features, ...) {
   for (i in 1:n_categories) {
     category_genes <- features[, i] != 0
     category_cdl <- cdl[category_genes, , drop = FALSE]
-    
+
+    # Check for genes with zero likelihood under all components
+    nonzero_genes <- rowSums(category_cdl) > 0
+    if (sum(!nonzero_genes) > 0) {
+      stop(paste0("mixsqp_optimize: category ", i, " has ", sum(!nonzero_genes),
+                  " gene(s) with zero likelihood. ",
+                  "This should not happen with properly preprocessed data."))
+    }
+
     fit <- mixsqp::mixsqp(category_cdl, ...)
     delta[i, ] <- fit$x
-    
+
     # Compute log-likelihood for this category
     weights <- category_cdl %*% fit$x
-    category_ll <- sum(log(weights))
+    category_ll <- sum(log(pmax(weights, .Machine$double.xmin)))
     total_ll <- total_ll + category_ll
   }
   

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 from scipy import sparse
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Set
 import glob # For finding files
 from tqdm import tqdm # For progress bar
 import matplotlib.pyplot as plt
@@ -25,17 +25,11 @@ if str(script_dir) not in sys.path:
 # --- Import custom functions/classes --- 
 from linkage_disequilibrium import get_burden_score
 
-# --- Define Paths --- 
-dataname = 'aou_amr'
-
+# --- Define Paths ---
 TOP_DIR = "/Users/wlu/Dropbox (Partners HealthCare)"
 
 # Directory containing the within-gene LD matrices (e.g., .npz files)
 LD_MATRIX_DIR = Path(TOP_DIR) / "within_gene_ld_ukbb"
-
-# Directory containing variant-level data
-# VARIANT_DATA_FILE = Path(TOP_DIR) / "burdenEM/burdenEM_results/data/utility/test_aou_afr_exome_vep2.txt.bgz"
-VARIANT_DATA_FILE = Path(TOP_DIR) / f"burdenEM/burdenEM_results/data/utility/test_{dataname}_exome_vep2.txt.bgz"
 
 # Path to the gnomAD LoF metrics file (for gene ID mapping)
 GNOMAD_LOF_METRICS_FILE = Path(TOP_DIR) / "burdenEM/burdenEM_results/data/utility/gnomad.v4.constraint.by_gene.tsv"
@@ -47,8 +41,34 @@ GENE_ANNOT_NAMES = ['lof.oe', 'mis_pphen.oe', 'lof.oe_ci.upper', 'cds_length', '
 OUTPUT_DIR = Path("./burden_scores_output")
 OUTPUT_DIR.mkdir(exist_ok=True) # Create output directory if it doesn't exist
 
-# >>> Define Output File for R <<<
-R_OUTPUT_FILE = Path(TOP_DIR) / f"burdenEM/burdenEM_results/data/utility/{dataname}_ld_corrected_burden_scores"
+# >>> Define Output File for R (default, overridden by --output_prefix and --dataname) <<<
+R_OUTPUT_DIR = Path(TOP_DIR) / "burdenEM/burdenEM_results/data/utility"
+
+
+def load_pruned_variants(pruned_file: str) -> Set[str]:
+    """
+    Load the set of pruned (removed) variant IDs from an LD pruning output file.
+    Supports both local files and GCS paths.
+    """
+    print(f"Loading pruned variants from: {pruned_file}")
+    
+    if pruned_file.startswith("gs://"):
+        # Parse GCS path
+        path_parts = pruned_file.replace("gs://", "").split("/", 1)
+        bucket_name = path_parts[0]
+        blob_name = path_parts[1] if len(path_parts) > 1 else ""
+        
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        text = blob.download_as_text()
+        pruned_df = pl.read_csv(StringIO(text), separator='\t', has_header=True)
+    else:
+        pruned_df = pl.read_csv(pruned_file, separator='\t', has_header=True)
+    
+    pruned_snps = set(pruned_df['SNP'].to_list())
+    print(f"Loaded {len(pruned_snps)} pruned variants to exclude")
+    return pruned_snps
 
 # --- Define Constants ---
 TRAIT = "height" # Hard-coded trait name based on user request
@@ -61,7 +81,7 @@ FUNCTIONAL_CATEGORIES = [
 ]
 ANNOT_NAMES = FUNCTIONAL_CATEGORIES  # Annotation columns to process
 MIN_AF = 0.0
-MAX_AF = 0.0001
+MAX_AF = 0.001
 
 AF_RTOL = 1
 
@@ -112,24 +132,46 @@ def main():
     
     # --- Argument Parsing --- 
     parser = argparse.ArgumentParser(description="Compute LD-corrected burden scores from variant summary statistics.")
-    parser.add_argument("--variant_data", default=VARIANT_DATA_FILE, help="Path to the *directory* containing summary statistics files (e.g., where genebass_TRAIT_CATEGORY_*.txt.bgz files are located)")
+    parser.add_argument("--dataname", type=str, default="aou_afr",
+                        help="Dataset name (e.g., 'aou_afr', 'aou_eur', 'aou_amr', 'ukbb'). Used to find the correct variant data file. [default: aou_afr]")
+    parser.add_argument("--variant_data", default=None, help="Path to the variant data file. If not provided, inferred from --dataname.")
     parser.add_argument("--gene_map", default=GNOMAD_LOF_METRICS_FILE, help="Path to the gene symbol to Ensembl ID mapping file.")
     parser.add_argument("--ld_matrices", 
     # default=LD_MATRIX_DIR, 
     help="Path to the directory containing LD matrices.")
-    parser.add_argument("--output_prefix", "-o", default=R_OUTPUT_FILE, help="Prefix for the output files (e.g., Results/ukbb_ld_corrected_burden_scores)")
+    parser.add_argument("--output_prefix", "-o", default=None,
+                        help="Prefix for the output files. Defaults to "
+                             "<utility_dir>/<dataname>_ld_corrected_burden_scores")
     parser.add_argument("--num_genes", "-n", type=int, default=None, help="Optional: Limit processing to the first N genes.")
     parser.add_argument("--no_save", default=False, action="store_true")
     parser.add_argument('--gcs_bucket', type=str, default=None,
                     help='Name of the GCS bucket containing LD .npz and .snplist files')
     parser.add_argument('--gcs_prefix', type=str, default='',
                         help='Prefix path inside the GCS bucket (e.g., "within_gene_ld_ukbb/")')
+    parser.add_argument(
+        "--pruned_variants",
+        help="Path to file containing pruned (removed) variants from LD pruning. "
+             "Supports local paths or GCS paths (gs://bucket/path). "
+             "If provided, will also compute LD-pruned burden scores."
+    )
     # Optional: Add other parameters like AF limits if needed as arguments
     # parser.add_argument("--min_af", type=float, default=0.0, help="Minimum allele frequency threshold.")
     # parser.add_argument("--max_af", type=float, default=0.001, help="Maximum allele frequency threshold.")
 
     args = parser.parse_args()
-    
+
+    dataname = args.dataname
+    if args.variant_data is not None:
+        VARIANT_DATA_FILE = Path(args.variant_data)
+    else:
+        VARIANT_DATA_FILE = Path(TOP_DIR) / f"burdenEM/burdenEM_results/data/utility/test_{dataname}_exome_vep2.txt.bgz"
+
+    if args.output_prefix is None:
+        args.output_prefix = str(R_OUTPUT_DIR / f"{dataname}_ld_corrected_burden_scores")
+
+    print(f"Using dataname: {dataname}")
+    print(f"Using variant data file: {VARIANT_DATA_FILE}")
+
     # Initialize GCS client if requested
     if args.gcs_bucket:
         if storage is None:
@@ -144,6 +186,12 @@ def main():
     OUTPUT_DIR = Path(args.output_prefix).parent
     print(VARIANT_DATA_FILE)
     gene_to_id_map, gnomad_df = load_gnomad_mapping(GNOMAD_LOF_METRICS_FILE, GENE_ANNOT_NAMES)
+
+    # Load pruned variants if provided
+    pruned_snps: Set[str] = set()
+    compute_pruned = args.pruned_variants is not None
+    if compute_pruned:
+        pruned_snps = load_pruned_variants(args.pruned_variants)
 
     # 2. Load sumstats for each functional category
     variants_df = pl.read_csv(
@@ -217,6 +265,7 @@ def main():
 
         # ld_matrix = sparse.load_npz(ld_matrix_path)
 
+        # --- Compute original and LD-adjusted burden scores ---
         corrected_scores_list, uncorrected_scores_list = get_burden_score(
             matrices=[ld_matrix],
             matrix_snplists=[snplist_df],
@@ -229,18 +278,40 @@ def main():
 
         corrected_scores_dict = corrected_scores_list[0]
         uncorrected_scores_dict = uncorrected_scores_list[0]
-        
-        print(corrected_scores_dict)
-        print(uncorrected_scores_dict)
+
+        # --- Compute LD-pruned burden scores (if pruned variants provided) ---
+        pruned_scores_dict = {cat: np.nan for cat in ANNOT_NAMES}
+        if compute_pruned:
+            # Filter out pruned variants
+            gene_sumstats_pruned = gene_sumstats_df.filter(
+                ~pl.col('SNP').is_in(list(pruned_snps))
+            )
+            
+            if gene_sumstats_pruned.height > 0:
+                # Compute burden score on pruned variant set (no LD adjustment needed
+                # since correlated variants have been removed)
+                _, pruned_uncorrected_list = get_burden_score(
+                    matrices=[ld_matrix],
+                    matrix_snplists=[snplist_df],
+                    annot_snplists=[gene_sumstats_pruned],
+                    annot_af_name="AF_annot",
+                    annot_names=ANNOT_NAMES,
+                    merge_fields=['SNP'],
+                    AF_rtol=AF_RTOL,
+                )
+                pruned_scores_dict = pruned_uncorrected_list[0]
 
         for category in ANNOT_NAMES:
-            gene_results_list.append({
+            result_dict = {
                 "gene": gene_symbol,
                 "gene_id": gene_id,
                 "functional_category": category,
-                "burden_score": corrected_scores_dict[category],
-                "burden_score_no_ld": uncorrected_scores_dict[category],
-            })
+                "burden_score_ld_adjusted": corrected_scores_dict[category],
+                "burden_score_original": uncorrected_scores_dict[category],
+            }
+            if compute_pruned:
+                result_dict["burden_score_ld_pruned"] = pruned_scores_dict[category]
+            gene_results_list.append(result_dict)
     print(gene_results_list)
     print("\nConverting results to DataFrame...")
     results_df = pl.DataFrame(gene_results_list)
@@ -263,9 +334,12 @@ def main():
             'gene',
             'gene_id',
             'functional_category',
-            'burden_score',
-            'burden_score_no_ld',
-        ] + GENE_ANNOT_NAMES
+            'burden_score_ld_adjusted',
+            'burden_score_original',
+        ]
+        if compute_pruned:
+            output_columns.append('burden_score_ld_pruned')
+        output_columns += GENE_ANNOT_NAMES
 
         # Filter results for the current category
         category_df = final_results_df.filter(pl.col('functional_category') == category)

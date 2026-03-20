@@ -37,6 +37,8 @@ Usage:
   cli.R replication <studies_file> [--primary_dataset=<pd>] [--pvalue_threshold=<pval>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
   cli.R effect_replication <studies_file> [--primary_dataset=<pd>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
   cli.R distribution <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R qqplot <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R power <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
   cli.R -h | --help
   cli.R --version
 
@@ -68,6 +70,10 @@ if (args$heritability) {
   command <- "effect_replication"
 } else if (args$distribution) {
   command <- "distribution"
+} else if (args$qqplot) {
+  command <- "qqplot"
+} else if (args$power) {
+  command <- "power"
 } else {
   stop("Error: No valid command specified. Use --help for usage.")
 }
@@ -170,6 +176,7 @@ if (command == "heritability") {
             # Ensure the output directory exists
             dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
             
+            print(heritability_results)
             cat("Saving results to:", output_table_path, "\n")
             readr::write_tsv(heritability_results, output_table_path)
             if (args$verbose) {
@@ -380,6 +387,81 @@ if (command == "heritability") {
             message("Distribution metrics calculation yielded no results or all studies failed. No table will be saved.")
         } else {
             message("No distribution metrics results to display or save.")
+        }
+    }
+} else if (command == "qqplot") {
+    source("luke/qqplot.R") # Source the QQ plot functions
+    source("R/model.R")     # Source model functions for posterior_expectation2
+    
+    if (args$verbose) { message("Computing QQ plot data for posterior mean effect sizes...") }
+    
+    qqplot_results <- calculate_qqplot_for_studies(
+        studies_df = studies_df,
+        annotation = args$annotation,
+        verbose = args$verbose,
+        run_sequentially_param = args$no_parallel
+    )
+    
+    # Save results if any
+    if (!is.null(qqplot_results) && nrow(qqplot_results) > 0) {
+        output_table_path <- generate_output_tablename(
+            studies_file_path = args$studies_file,
+            command = command, # 'qqplot'
+            dataset = "all",
+            annotation = args$annotation,
+            name = args$name
+        )
+        
+        dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
+        cat("Saving results to:", output_table_path, "\n")
+        readr::write_tsv(qqplot_results, output_table_path)
+        if (args$verbose) {
+            message(sprintf("QQ plot data saved to: %s", output_table_path))
+        }
+    } else {
+        if (args$verbose) {
+            message("QQ plot calculation yielded no results. No table will be saved.")
+        } else {
+            message("No QQ plot results to display or save.")
+        }
+    }
+} else if (command == "power") {
+    source("luke/power_projection.R")
+
+    if (args$verbose) { message("Computing power projection across sample sizes...") }
+
+    power_results <- calculate_power_projection_for_studies(
+        studies_df = studies_df,
+        annotation_param = args$annotation,
+        verbose_param = args$verbose,
+        run_sequentially_param = args$no_parallel
+    )
+
+    if (!is.null(power_results) && nrow(power_results) > 0) {
+        if (args$verbose) {
+            message("Power projection complete. Results:")
+            print(power_results)
+        }
+
+        output_table_path <- generate_output_tablename(
+            studies_file_path = args$studies_file,
+            command = command,
+            dataset = "all",
+            annotation = args$annotation,
+            name = args$name
+        )
+
+        dir.create(dirname(output_table_path), showWarnings = FALSE, recursive = TRUE)
+        cat("Saving results to:", output_table_path, "\n")
+        readr::write_tsv(power_results, output_table_path)
+        if (args$verbose) {
+            message(sprintf("Power projection results saved to: %s", output_table_path))
+        }
+    } else {
+        if (args$verbose) {
+            message("Power projection yielded no results. No table will be saved.")
+        } else {
+            message("No power projection results to display or save.")
         }
     }
 }
