@@ -18,6 +18,15 @@ source("R/power.R")
 # Sample size multipliers: 0.5x to ~1Mx current size
 SAMPLE_SIZE_FACTORS <- 2^(-1:20)
 
+is_binary_power_projection_model <- function(model) {
+  if (is.null(model) || is.null(model$df)) {
+    return(FALSE)
+  }
+
+  df_names <- names(model$df)
+  ("CAC_cases" %in% df_names) && ("expected_CAC_cases" %in% df_names)
+}
+
 process_single_study_for_power_projection <- function(study_row, current_annotation, current_verbose) {
   trait_name_from_df <- if ("identifier" %in% names(study_row)) study_row$identifier else study_row$description
   dataset_from_df <- study_row$dataset
@@ -44,9 +53,28 @@ process_single_study_for_power_projection <- function(study_row, current_annotat
     return(NULL)
   }
 
-  tryCatch({
-    model <- readRDS(model_file)
+  model <- tryCatch({
+    readRDS(model_file)
+  }, error = function(e) {
+    if (current_verbose) {
+      message(sprintf("  Error loading %s for %s (%s): %s",
+                      model_file, trait_name_from_df, dataset_from_df, e$message))
+    }
+    return(NULL)
+  })
 
+  if (is.null(model)) {
+    return(NULL)
+  }
+
+  if (is_binary_power_projection_model(model)) {
+    stop(sprintf(
+      "process_single_study_for_power_projection() only supports quantitative traits; binary trait model found in %s.",
+      model_file
+    ))
+  }
+
+  tryCatch({
     # Extract component endpoints and compute aggregated mixture weights
     components <- model$component_endpoints
     features <- do.call(rbind, model$df$features)

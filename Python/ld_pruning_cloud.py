@@ -922,8 +922,8 @@ def main():
                     
                     if not (npz_blob.exists() and snp_blob.exists()):
                         genes_without_ld += 1
-                        # Keep all variants if no LD matrix
-                        pruned_results.append(gene_variants)
+                        # No variants were pruned without LD information.
+                        pruned_results.append(gene_variants if not args.output_removed else gene_variants.head(0))
                         continue
                     
                     # Load SNP list
@@ -946,8 +946,8 @@ def main():
                     
                     if not (ld_matrix_path.exists() and ld_snplist_path.exists()):
                         genes_without_ld += 1
-                        # Keep all variants if no LD matrix
-                        pruned_results.append(gene_variants)
+                        # No variants were pruned without LD information.
+                        pruned_results.append(gene_variants if not args.output_removed else gene_variants.head(0))
                         continue
                     
                     snplist_df = pl.read_csv(ld_snplist_path, separator='\t', has_header=True)

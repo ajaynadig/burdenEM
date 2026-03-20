@@ -42,7 +42,7 @@ OUTPUT_DIR = Path("./burden_scores_output")
 OUTPUT_DIR.mkdir(exist_ok=True) # Create output directory if it doesn't exist
 
 # >>> Define Output File for R (default, overridden by --output_prefix and --dataname) <<<
-R_OUTPUT_FILE = Path(TOP_DIR) / "burdenEM/burdenEM_results/data/utility/ld_corrected_burden_scores"
+R_OUTPUT_DIR = Path(TOP_DIR) / "burdenEM/burdenEM_results/data/utility"
 
 
 def load_pruned_variants(pruned_file: str) -> Set[str]:
@@ -139,7 +139,9 @@ def main():
     parser.add_argument("--ld_matrices", 
     # default=LD_MATRIX_DIR, 
     help="Path to the directory containing LD matrices.")
-    parser.add_argument("--output_prefix", "-o", default=R_OUTPUT_FILE, help="Prefix for the output files (e.g., Results/ukbb_ld_corrected_burden_scores)")
+    parser.add_argument("--output_prefix", "-o", default=None,
+                        help="Prefix for the output files. Defaults to "
+                             "<utility_dir>/<dataname>_ld_corrected_burden_scores")
     parser.add_argument("--num_genes", "-n", type=int, default=None, help="Optional: Limit processing to the first N genes.")
     parser.add_argument("--no_save", default=False, action="store_true")
     parser.add_argument('--gcs_bucket', type=str, default=None,
@@ -163,6 +165,9 @@ def main():
         VARIANT_DATA_FILE = Path(args.variant_data)
     else:
         VARIANT_DATA_FILE = Path(TOP_DIR) / f"burdenEM/burdenEM_results/data/utility/test_{dataname}_exome_vep2.txt.bgz"
+
+    if args.output_prefix is None:
+        args.output_prefix = str(R_OUTPUT_DIR / f"{dataname}_ld_corrected_burden_scores")
 
     print(f"Using dataname: {dataname}")
     print(f"Using variant data file: {VARIANT_DATA_FILE}")

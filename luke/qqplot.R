@@ -28,43 +28,29 @@ compute_qqplot_data_for_model <- function(model, verbose = FALSE) {
         return(tibble())
     }
     
-    # Check available columns
-    df_cols <- names(model$df)
-    
+    # Convert to regular data frame if needed
+    df <- as.data.frame(model$df)
+
+    # Detect trait type based on available columns
+    is_binary <- ("CAC_cases" %in% names(df)) && ("expected_CAC_cases" %in% names(df))
+    is_continuous <- ("effect_estimate" %in% names(df)) || ("gamma_perSD" %in% names(df))
+
+    if (is_binary) {
+        stop("compute_qqplot_data_for_model() only supports quantitative traits; binary trait models are not supported.")
+    }
+
     # Define functions for posterior expectation
     effect_size_fn <- function(x, row) x
     effect_sq_fn <- function(x, row) x^2
-    
+
     # Compute posterior mean effect sizes for each gene
     model$df$posterior_mean <- posterior_expectation2(model, function_to_integrate = effect_size_fn)
     model$df$posterior_mean_sq <- posterior_expectation2(model, function_to_integrate = effect_sq_fn)
     model$df$posterior_variance <- model$df$posterior_mean_sq - (model$df$posterior_mean^2)
     model$df$posterior_sd <- sqrt(pmax(model$df$posterior_variance, 0))
-    
-    # Convert to regular data frame if needed
     df <- as.data.frame(model$df)
-    
-    # Detect trait type based on available columns
-    is_binary <- ("CAC_cases" %in% names(df)) && ("expected_CAC_cases" %in% names(df))
-    is_continuous <- ("effect_estimate" %in% names(df)) || ("gamma_perSD" %in% names(df))
-    
-    if (is_binary) {
-        # Binary trait: compute Z-score from case counts
-        # Z_obs = (observed - expected) / sqrt(expected)
-        expected <- pmax(df$expected_CAC_cases, 1e-10)
-        df$Z_observed <- (df$CAC_cases - df$expected_CAC_cases) / sqrt(expected)
-        df$effect_estimate <- df$CAC_cases - df$expected_CAC_cases  # Store the difference
-        df$effect_se <- sqrt(expected)    # Store the SE
-        trait_type <- "binary"
-        
-        # For binary traits, posterior_mean is on log-RR scale
-        # The expected excess cases from effect beta is: expected * (exp(beta) - 1) ≈ expected * beta for small beta
-        # So Z_posterior = (expected * posterior_mean) / sqrt(expected) = posterior_mean * sqrt(expected)
-        df$Z_posterior_mean <- df$posterior_mean * sqrt(expected)
-        
-        if (verbose) message("  Detected binary trait model")
-        
-    } else if (is_continuous) {
+
+    if (is_continuous) {
         # Continuous trait: compute Z-scores
         effect_col <- if ("effect_estimate" %in% names(df)) "effect_estimate" else "gamma_perSD"
         df$effect_estimate <- df[[effect_col]]
