@@ -28,6 +28,25 @@ process_variant_to_gene <- function(variant_data, frequency_bin_edges) {
 
   # --- 1. Calculate beta_per_sd ---
   message("Calculating 'beta_per_sd'...")
+  # Fix Inf variant_variance (caused by SE=0 upstream). For continuous traits,
+  # variant_variance = 1/(SE^2 * N). When SE=0, impute using 1/(N * 2*AF*(1-AF))
+  # which is the expected value under a standard regression model.
+  n_inf_vv <- sum(is.infinite(variant_data$variant_variance))
+  if (n_inf_vv > 0) {
+    message(paste("  Imputing", n_inf_vv, "Inf variant_variance values with 1/(N * 2*AF*(1-AF))"))
+    variant_data <- variant_data %>%
+      dplyr::mutate(variant_variance = ifelse(
+        is.infinite(variant_variance),
+        1 / (N * 2 * AF * (1 - AF)),
+        variant_variance
+      ))
+  }
+  # Drop any remaining non-finite values
+  n_bad <- sum(!is.finite(variant_data$variant_variance) | !is.finite(variant_data$beta))
+  if (n_bad > 0) {
+    message(paste("  Removing", n_bad, "variants with remaining non-finite variant_variance or beta"))
+    variant_data <- variant_data %>% dplyr::filter(is.finite(variant_variance) & is.finite(beta))
+  }
   variant_data <- variant_data %>%
       mutate(beta_per_sd = beta * sqrt(variant_variance))
 

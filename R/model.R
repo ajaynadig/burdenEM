@@ -374,11 +374,16 @@ complete_data_means <- function(model,  function_to_integrate = function(beta) b
     numerator <- (model$df$likelihood %*% diag(fvals_vec)) %*% t(model$components)
   }
 
-  if (any(denominator == 0)) {
-    stop(paste0("complete_data_means: ", sum(denominator == 0),
+  # Check for genes where ALL components give zero likelihood (entire row is zero).
+  # Individual zero cells are fine — they just mean that component has no support for that gene.
+  zero_row_mask <- rowSums(denominator != 0) == 0
+  if (any(zero_row_mask)) {
+    stop(paste0("complete_data_means: ", sum(zero_row_mask),
                 " gene(s) have zero likelihood under all components."))
   }
+  # Safe division: replace individual zero cells with NA to avoid 0/0, then zero out
   result <- numerator / denominator
+  result[denominator == 0] <- 0
   return(result)
 }
 

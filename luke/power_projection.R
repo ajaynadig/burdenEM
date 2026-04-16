@@ -68,10 +68,10 @@ process_single_study_for_power_projection <- function(study_row, current_annotat
   }
 
   if (is_binary_power_projection_model(model)) {
-    stop(sprintf(
-      "process_single_study_for_power_projection() only supports quantitative traits; binary trait model found in %s.",
-      model_file
-    ))
+    if (current_verbose) {
+      message(sprintf("  Skipping binary trait model: %s", model_file))
+    }
+    return(NULL)
   }
 
   tryCatch({
