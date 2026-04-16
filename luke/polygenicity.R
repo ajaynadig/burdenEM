@@ -31,12 +31,17 @@ process_single_study_for_polygenicity <- function(study_row, current_annotation,
   model_filename_pattern <- study_row$model_filename
   actual_model_filename <- stringr::str_replace(model_filename_pattern, "<ANNOTATION>", current_annotation)
 
-  model_fit <- tryCatch({
-    readRDS(actual_model_filename)
-  }, error = function(e) {
-    if (current_verbose) message(sprintf("  Error loading model '%s': %s", actual_model_filename, e$message))
-    return(NULL)
-  })
+  if (!file.exists(actual_model_filename)) {
+    if (current_verbose) message(sprintf("  Model file not found, skipping: %s", actual_model_filename))
+    model_fit <- NULL
+  } else {
+    model_fit <- tryCatch({
+      readRDS(actual_model_filename)
+    }, error = function(e) {
+      if (current_verbose) message(sprintf("  Error loading model '%s': %s", actual_model_filename, e$message))
+      return(NULL)
+    })
+  }
 
   metric_values_list <- list()
   if (is.null(model_fit)) {
@@ -50,8 +55,14 @@ process_single_study_for_polygenicity <- function(study_row, current_annotation,
 
     for (metric_name in names(polygenicity_functions)) {
       polygenicity_fn <- polygenicity_functions[[metric_name]]
-      calculated_metric <- polygenicity_fn(model_fit) 
-      metric_values_list[[metric_name]] <- calculated_metric$mean 
+      calculated_metric <- tryCatch({
+        polygenicity_fn(model_fit)
+      }, error = function(e) {
+        if (current_verbose) message(sprintf("  Error calculating %s for %s (%s): %s",
+                                             metric_name, study_row$abbreviation, study_row$dataset, e$message))
+        list(mean = NA_real_, se = NA_real_)
+      })
+      metric_values_list[[metric_name]] <- calculated_metric$mean
       metric_values_list[[paste0(metric_name, "_se")]] <- calculated_metric$se
     }
   }

@@ -75,19 +75,31 @@ run_burdenEM_rvas <- function(
     correct_for_ld = FALSE,
     removed_variants_file = NULL,
     binary_trait_model_type = "betabinom",
-    optimizer = "EM"
+    optimizer = "EM",
+    variant_data = NULL
 ) {
 
     # --- 1. Load Variant-Level Data ---
     if(verbose) message("\n--- Loading Variant-Level Data ---")
-    variant_data <- load_variant_files_with_category(
-        variant_dir = variant_dir,
-        variant_file_pattern = variant_file_pattern, # Use pattern from CLI
-        # data_name and pheno arguments removed
-        annotations_to_process = c(annotation_to_process),
-        frequency_range = frequency_range
-    ) %>% distinct()
-    if(verbose) message(paste("Successfully loaded", nrow(variant_data), "variants."))
+    if (!is.null(variant_data)) {
+        # Use pre-loaded variant data (e.g., on-the-fly meta construction)
+        variant_data <- variant_data %>% distinct()
+        if(verbose) message(paste("Using pre-loaded variant data:", nrow(variant_data), "variants."))
+    } else {
+        variant_data <- load_variant_files_with_category(
+            variant_dir = variant_dir,
+            variant_file_pattern = variant_file_pattern, # Use pattern from CLI
+            # data_name and pheno arguments removed
+            annotations_to_process = c(annotation_to_process),
+            frequency_range = frequency_range
+        ) %>% distinct()
+        if(verbose) message(paste("Successfully loaded", nrow(variant_data), "variants."))
+    }
+
+    if (nrow(variant_data) == 0) {
+        warning(paste("No variant data available. Skipping this study."))
+        return(NULL)
+    }
 
     # --- Detect Trait Type ---
     required_binary_cols <- c("AC_cases", "N")

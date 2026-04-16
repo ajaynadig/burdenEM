@@ -32,13 +32,13 @@ generate_output_tablename <- function(studies_file_path, command, dataset, annot
 doc <- 'Step 2 CLI to analyze a fitted burdenEM model
 
 Usage:
-  cli.R heritability <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
-  cli.R polygenicity <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
-  cli.R replication <studies_file> [--primary_dataset=<pd>] [--pvalue_threshold=<pval>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
-  cli.R effect_replication <studies_file> [--primary_dataset=<pd>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
-  cli.R distribution <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
-  cli.R qqplot <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
-  cli.R power <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>]
+  cli.R heritability <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
+  cli.R polygenicity <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
+  cli.R replication <studies_file> [--primary_dataset=<pd>] [--pvalue_threshold=<pval>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
+  cli.R effect_replication <studies_file> [--primary_dataset=<pd>] [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
+  cli.R distribution <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
+  cli.R qqplot <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
+  cli.R power <studies_file> [--annotation=<ann>] [--trait_type=<tt>] [--verbose] [--no_parallel] [--name=<name>] [--skip_existing]
   cli.R -h | --help
   cli.R --version
 
@@ -51,6 +51,7 @@ Options:
   -n, --name=<name>          Custom name for output directory and file prefix.
   --primary_dataset=<pd>     Identifier for the primary dataset in replication pairs (e.g., \'ukbb_eur\').
   --pvalue_threshold=<pval>  Two-tailed p-value threshold for significance in the primary study.
+  --skip_existing            Skip command if output file already exists [default: FALSE].
   -h, --help                 Show this screen.
   --version                  Show version.
 
@@ -132,6 +133,27 @@ if (!is.null(command) || !(args$help || isTRUE(args$version))) { # Proceed if it
 if (!is.null(command)) {
     if (args$verbose) {
     message(sprintf("Executing command: '%s' with %d studies.", command, if(is.data.frame(studies_df)) nrow(studies_df) else 0))
+}
+
+# --- Skip existing output file if --skip_existing is set ---
+if (isTRUE(args$skip_existing)) {
+    # Determine what the output path would be
+    skip_dataset <- "all"
+    if (command %in% c("replication", "effect_replication") && !is.null(args$primary_dataset)) {
+        skip_dataset <- paste0("primary-", gsub("[^A-Za-z0-9_]", "", args$primary_dataset))
+    }
+    skip_output_path <- generate_output_tablename(
+        studies_file_path = args$studies_file,
+        command = command,
+        dataset = skip_dataset,
+        annotation = args$annotation,
+        name = args$name,
+        pvalue_threshold = if (command == "replication") args$pvalue_threshold else NULL
+    )
+    if (file.exists(skip_output_path)) {
+        message(sprintf("Skipping '%s' for annotation '%s': output already exists at %s", command, args$annotation, skip_output_path))
+        quit(status = 0)
+    }
 }
 
 # Dispatch to command-specific logic

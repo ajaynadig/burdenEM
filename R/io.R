@@ -101,7 +101,7 @@ process_data_rvas <- function(input_data,
 #' @importFrom purrr map
 #' @export
 load_variant_files_with_category <- function(variant_dir, variant_file_pattern = NULL, data_name, pheno, annotations_to_process, frequency_range = NULL) {
-  BINARY_TRAIT_TYPES <- c("binary", "categorical", "icd_first_occurrence")
+  BINARY_TRAIT_TYPES <- c("binary", "categorical", "icd_first_occurrence", "icd10")
 
   message(paste("Looking for variant files in:", variant_dir))
 
@@ -250,7 +250,8 @@ load_variant_files_with_category <- function(variant_dir, variant_file_pattern =
 
   variant_data_list <- variant_data_list[!sapply(variant_data_list, is.null)]
   if (length(variant_data_list) == 0) {
-    stop("Failed to read any relevant variant files or all were empty/skipped/missing columns.")
+    warning("No valid variant data loaded — all files were empty, skipped, or missing required columns.")
+    return(data.frame(gene=character(), AF=numeric(), beta=numeric(), variant_variance=numeric(), functional_category=character()))
   }
 
   # Combine valid dataframes

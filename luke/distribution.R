@@ -23,7 +23,17 @@ source("luke/distribution_functions.R")
 calculate_estimated_distribution <- function(study_row, current_annotation, current_verbose, gene_proportions, gene_counts=NULL) {
   model_filename_pattern <- study_row$model_filename
   actual_model_filename <- stringr::str_replace(model_filename_pattern, "<ANNOTATION>", current_annotation)
-  model <- readRDS(actual_model_filename)
+
+  if (!file.exists(actual_model_filename)) {
+    if (current_verbose) message(sprintf("  Model file not found, skipping: %s", actual_model_filename))
+    return(NULL)
+  }
+
+  model <- tryCatch(readRDS(actual_model_filename), error = function(e) {
+    if (current_verbose) message(sprintf("  Error loading model '%s': %s", actual_model_filename, e$message))
+    return(NULL)
+  })
+  if (is.null(model)) return(NULL)
 
   if (is.null(gene_counts)) {
     gene_counts <- nrow(model$df) * gene_proportions

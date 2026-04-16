@@ -156,9 +156,16 @@ process_effect_replication_pair <- function(primary_study_row, replication_study
     )
 
     if (!is.null(primary_model_obj) && !is.null(replication_model_obj)) {
-        pair_metrics <- compute_effect_replication_metrics_for_pair(primary_model_obj, replication_model_obj, verbose = verbose_param)
-        
-        if (nrow(pair_metrics) > 0) {
+        pair_metrics <- tryCatch({
+            compute_effect_replication_metrics_for_pair(primary_model_obj, replication_model_obj, verbose = verbose_param)
+        }, error = function(e) {
+            if (verbose_param) message(sprintf("  Error computing effect replication for %s (%s vs %s): %s",
+                                               primary_study_row$abbreviation, primary_study_row$dataset,
+                                               replication_study_row$dataset, e$message))
+            return(NULL)
+        })
+
+        if (!is.null(pair_metrics) && nrow(pair_metrics) > 0) {
             results <- pair_metrics %>%
                 mutate(
                     abbreviation = primary_study_row$abbreviation,

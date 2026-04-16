@@ -73,7 +73,13 @@ option_list = list(
     make_option(c("--optimizer"), type="character", default="EM",
         help="Optimization method: 'EM' or 'mixsqp' [default: %default]", metavar="character"),
     make_option(c("--removed_variants_file"), type="character", default=NULL, dest="removed_variants_file",
-        help="Path template to removed variants file for LD pruning (binary traits only). Supports <DATASET> placeholder. Accepts local paths or gs:// URIs (auto-downloaded). File should have 'locus' or 'SNP' column.", metavar="character")
+        help="Path template to removed variants file for LD pruning (binary traits only). Supports <DATASET> placeholder. Accepts local paths or gs:// URIs (auto-downloaded). File should have 'locus' or 'SNP' column.", metavar="character"),
+    make_option(c("--gcs_var_prefix"), type="character", default=NULL, dest="gcs_var_prefix",
+        help="GCS prefix for variant files (e.g., 'gs://aou_wlu/v8_analysis/BurdenEM'). When set, variant files are downloaded from GCS. Subdirectory structure: <prefix>/<subdir>/var_files/. Default: read from local paths.", metavar="character"),
+    make_option(c("--num_workers"), type="integer", default=NULL, dest="num_workers",
+        help="Number of parallel workers (caps memory usage). Default: min(4, availableCores()). Ignored if --no_parallel.", metavar="integer"),
+    make_option(c("--no_chunk_by_identifier"), action="store_true", default=FALSE, dest="no_chunk_by_identifier",
+        help="Disable phenotype-grouped processing. By default, studies are processed one phenotype (identifier) at a time so the GCS cache is reused across the 6 datasets sharing component files, then cleaned up before the next phenotype.")
 )
 
 opt_parser = OptionParser(option_list=option_list, usage = "%prog [options] studies_file")
@@ -99,6 +105,11 @@ intercept_frequency_bin_edges_cli <- as.numeric(strsplit(opt$intercept_frequency
 # Read the studies file
 studies_df <- readr::read_tsv(studies_file_path, show_col_types = FALSE)
 
+# Sort by identifier so studies sharing variant files are processed adjacently.
+# This maximizes GCS cache reuse: the 6 datasets per phenotype (3 AoU components +
+# genebass + 2 metas) all reference the same component files.
+studies_df <- studies_df %>% dplyr::arrange(identifier, dataset)
+
 # --- Meta dataset component definitions ---
 .meta_components <- list(
     aou_meta = c("aou_afr", "aou_amr", "aou_eur"),
@@ -110,6 +121,10 @@ get_component_datasets <- function(dataset) {
     return(dataset)
 }
 
+is_meta_dataset <- function(dataset) {
+    dataset %in% names(.meta_components)
+}
+
 # Helper: extract ancestry/population suffix from dataset name
 # e.g., "aou_afr" -> "afr", "aou_eur" -> "eur", "genebass" -> "genebass"
 get_ancestry_from_dataset <- function(dataset) {
@@ -119,6 +134,223 @@ get_ancestry_from_dataset <- function(dataset) {
     if (grepl("genebass", dataset, ignore.case = TRUE)) return("genebass")
     parts <- strsplit(dataset, "_")[[1]]
     return(parts[length(parts)])
+}
+
+# --- ENSG → gene symbol mapping (for biobank_meta gene name harmonization) ---
+# AoU variant files use ENSG IDs; genebass uses gene symbols. When constructing
+# biobank_meta on-the-fly, we need to harmonize AoU gene names to symbols.
+.ensg_to_symbol <- NULL
+if (any(studies_df$dataset == "biobank_meta")) {
+    utility_dir <- "data/utility"
+    genes_file <- list.files(utility_dir, pattern = "^genebass_ld_corrected_burden_scores_pLoF_", full.names = TRUE)[1]
+    if (!is.na(genes_file)) {
+        mapping_df <- data.table::fread(genes_file, select = c("gene", "gene_id"))
+        .ensg_to_symbol <- setNames(mapping_df$gene, mapping_df$gene_id)
+        message(paste("Loaded ENSG→symbol mapping:", length(.ensg_to_symbol), "genes"))
+    } else {
+        warning("Cannot find genebass genes file for ENSG→symbol mapping. biobank_meta gene harmonization may fail.")
+    }
+}
+
+# --- GCS helpers for variant file access ---
+.gcs_temp_dir <- file.path(tempdir(), "burdenem_var_files")
+
+# Map dataset to GCS subdirectory
+gcs_subdir_for <- function(dataset_prefix) {
+    if (grepl("^genebass", dataset_prefix)) return("genebass/var_files")
+    if (grepl("^aou_", dataset_prefix)) return("aou/var_files")
+    stop("No GCS mapping for dataset prefix: ", dataset_prefix)
+}
+
+# Find variant files on GCS matching a dataset's sumstats pattern
+# Returns local paths after downloading
+gcs_download_variant_files <- function(dataset, annotation, sumstats_pattern, verbose = FALSE) {
+    gcs_prefix <- opt$gcs_var_prefix
+    gcs_dir <- paste0(gcs_prefix, "/", gcs_subdir_for(dataset))
+
+    # Extract phenocode from sumstats_filename_pattern
+    # Pattern looks like: data/var_txt/^aou_afr_3000963_<ANNOTATION>_.*\.txt\.bgz$
+    pattern_base <- basename(sumstats_pattern)
+    # Remove regex anchors and escapes to get a glob-friendly pattern
+    # e.g., ^aou_afr_3000963_pLoF_.*\.txt\.bgz$ → aou_afr_3000963_pLoF_*
+    clean_pattern <- sub("^\\^", "", pattern_base)                  # remove leading ^
+    clean_pattern <- sub("\\$$", "", clean_pattern)                  # remove trailing $
+    clean_pattern <- gsub("\\.\\*", "*", clean_pattern)              # .* → *
+    clean_pattern <- gsub("\\\\\\.", ".", clean_pattern)             # \\. → .
+    clean_pattern <- stringr::str_replace(clean_pattern, "<ANNOTATION>", annotation)
+
+    gcs_glob <- paste0(gcs_dir, "/", clean_pattern)
+    if (verbose) message(paste("  GCS listing:", gcs_glob))
+
+    gcs_files <- tryCatch(
+        system(paste("gsutil ls", shQuote(gcs_glob)), intern = TRUE, ignore.stderr = TRUE),
+        error = function(e) character(0),
+        warning = function(w) character(0)
+    )
+    gcs_files <- gcs_files[startsWith(gcs_files, "gs://")]
+
+    if (length(gcs_files) == 0) {
+        if (verbose) message(paste("  No GCS files found for:", gcs_glob))
+        return(character(0))
+    }
+
+    # Download to temp dir (with caching — already-downloaded files are skipped)
+    dir.create(.gcs_temp_dir, showWarnings = FALSE, recursive = TRUE)
+    # Filter to files not already cached locally
+    needed <- gcs_files[!file.exists(file.path(.gcs_temp_dir, basename(gcs_files)))]
+    if (length(needed) > 0) {
+        if (verbose) message(paste("  Downloading", length(needed), "files (", length(gcs_files) - length(needed), "cached)"))
+        # Batch download with gsutil -m for parallelism
+        gcs_args <- paste(shQuote(needed), collapse = " ")
+        ret <- system(paste("gsutil -m cp", gcs_args, shQuote(.gcs_temp_dir)), intern = FALSE)
+        if (ret != 0) warning("Some GCS downloads may have failed")
+    } else if (verbose) {
+        message(paste("  All", length(gcs_files), "files cached locally"))
+    }
+    local_files <- file.path(.gcs_temp_dir, basename(gcs_files))
+    local_files <- local_files[file.exists(local_files)]
+    return(local_files)
+}
+
+# Clean up temp files for a specific dataset/phenotype to free disk space
+cleanup_gcs_temp <- function() {
+    if (dir.exists(.gcs_temp_dir)) {
+        unlink(.gcs_temp_dir, recursive = TRUE)
+        message("Cleaned up temp variant files")
+    }
+}
+
+# Load variant data for a single study (component or standalone), handling GCS if needed
+load_variant_data_for_study <- function(study_row, annotation, freq_range, verbose = FALSE) {
+    if (!is.null(opt$gcs_var_prefix)) {
+        # GCS mode: download files, then load from temp dir
+        pattern_with_anno <- stringr::str_replace(study_row$sumstats_filename_pattern, "<ANNOTATION>", annotation)
+        local_files <- gcs_download_variant_files(
+            dataset = study_row$dataset,
+            annotation = annotation,
+            sumstats_pattern = study_row$sumstats_filename_pattern,
+            verbose = verbose
+        )
+        if (length(local_files) == 0) {
+            warning(paste("No variant files found on GCS for:", study_row$dataset, study_row$identifier))
+            return(data.frame(gene=character(), AF=numeric(), beta=numeric(), variant_variance=numeric(), functional_category=character()))
+        }
+        # Load from temp dir using the downloaded files
+        variant_dir <- .gcs_temp_dir
+        # Build a regex that matches the downloaded filenames
+        file_pattern <- paste0("^", paste(basename(local_files), collapse = "|^"))
+        # Simpler: use the original pattern's basename
+        file_pattern <- basename(pattern_with_anno)
+    } else {
+        # Local mode
+        pattern_with_anno <- stringr::str_replace(study_row$sumstats_filename_pattern, "<ANNOTATION>", annotation)
+        variant_dir <- dirname(pattern_with_anno)
+        file_pattern <- basename(pattern_with_anno)
+    }
+
+    load_variant_files_with_category(
+        variant_dir = variant_dir,
+        variant_file_pattern = file_pattern,
+        annotations_to_process = c(annotation),
+        frequency_range = freq_range
+    )
+}
+
+# --- On-the-fly meta variant construction ---
+# Instead of reading pre-generated meta variant files, load component files
+# and combine them in memory. Supports both local and GCS sources.
+construct_meta_variant_data <- function(study_row, annotation, freq_range, verbose) {
+    meta_ds <- study_row$dataset
+    identifier <- study_row$identifier
+    components <- .meta_components[[meta_ds]]
+
+    message(paste("Constructing", meta_ds, "variant data on-the-fly from components:", paste(components, collapse = ", ")))
+
+    component_data_list <- list()
+    for (comp_ds in components) {
+        # Find the component study row in studies_df
+        comp_study <- studies_df %>%
+            dplyr::filter(identifier == !!identifier, dataset == comp_ds)
+
+        if (nrow(comp_study) == 0) {
+            warning(paste("Component study not found:", comp_ds, "for identifier:", identifier))
+            next
+        }
+        comp_study <- comp_study[1, ]  # take first if duplicates
+
+        if (verbose) message(paste("  Loading component:", comp_ds))
+
+        # Load variant data (handles GCS or local transparently)
+        comp_data <- tryCatch({
+            load_variant_data_for_study(comp_study, annotation, freq_range, verbose)
+        }, error = function(e) {
+            warning(paste("Failed to load component", comp_ds, ":", e$message))
+            return(NULL)
+        })
+
+        if (is.null(comp_data) || nrow(comp_data) == 0) {
+            warning(paste("No variant data loaded for component:", comp_ds))
+            next
+        }
+
+        # Ensure dataset column is set
+        if (!"dataset" %in% names(comp_data)) {
+            comp_data$dataset <- comp_ds
+        }
+
+        # For biobank_meta: harmonize ENSG → gene symbol for AoU components
+        if (meta_ds == "biobank_meta" && !grepl("genebass", comp_ds) && !is.null(.ensg_to_symbol)) {
+            ensg_mask <- grepl("^ENSG", comp_data$gene)
+            if (any(ensg_mask)) {
+                mapped <- .ensg_to_symbol[comp_data$gene[ensg_mask]]
+                n_mapped <- sum(!is.na(mapped))
+                n_total <- sum(ensg_mask)
+                comp_data$gene[ensg_mask] <- ifelse(!is.na(mapped), mapped, comp_data$gene[ensg_mask])
+                if (verbose) message(paste("    Gene name mapping:", n_mapped, "of", n_total, "ENSG IDs mapped to symbols"))
+            }
+        }
+
+        message(paste("  Component", comp_ds, ":", nrow(comp_data), "variants"))
+        component_data_list[[comp_ds]] <- comp_data
+    }
+
+    # Don't clean up — cached files are reused across studies for the same phenotype
+
+    if (length(component_data_list) == 0) {
+        warning(paste("No component data loaded for meta dataset:", meta_ds, "identifier:", identifier))
+        return(data.frame(gene=character(), AF=numeric(), beta=numeric(), variant_variance=numeric(), functional_category=character()))
+    }
+
+    combined <- data.table::rbindlist(component_data_list, use.names = TRUE, fill = TRUE) %>%
+        tibble::as_tibble()
+    message(paste("Combined", meta_ds, "variant data:", nrow(combined), "total variants from", length(component_data_list), "components"))
+
+    # Apply per-cohort LD pruning for binary traits (since we bypassed the override)
+    is_binary <- all(c("AC_cases", "N") %in% names(combined))
+    if (is_binary && length(.removed_variants_by_dataset) > 0 && "dataset" %in% names(combined)) {
+        original_count <- nrow(combined)
+        if (all(c("CHR", "POS") %in% names(combined))) {
+            combined <- combined %>% dplyr::mutate(.locus = paste0(CHR, ":", POS))
+        } else {
+            combined <- combined %>% dplyr::mutate(.locus = NA_character_)
+        }
+        if (!all(is.na(combined$.locus))) {
+            for (comp_ds in components) {
+                removed_loci <- .removed_variants_by_dataset[[comp_ds]]
+                if (!is.null(removed_loci) && length(removed_loci) > 0) {
+                    combined <- combined %>%
+                        dplyr::filter(!(dataset == comp_ds & .locus %in% removed_loci))
+                }
+            }
+        }
+        combined <- combined %>% dplyr::select(-.locus)
+        n_removed <- original_count - nrow(combined)
+        pct_removed <- if (original_count > 0) 100 * n_removed / original_count else 0
+        message(sprintf("LD pruning (on-the-fly): removed %d of %d variants (%.2f%%) across components for %s",
+                        n_removed, original_count, pct_removed, meta_ds))
+    }
+
+    return(combined)
 }
 
 # --- Download/load removed variants for LD pruning (binary traits only) ---
@@ -194,8 +426,10 @@ if (!is.null(opt$removed_variants_file)) {
                     }
                 }
                 variant_data <- variant_data %>% dplyr::select(-.locus)
-                message(paste("LD pruning: removed", original_count - nrow(variant_data),
-                              "variants across component cohorts for meta dataset", current_ds))
+                n_removed <- original_count - nrow(variant_data)
+                pct_removed <- if (original_count > 0) 100 * n_removed / original_count else 0
+                message(sprintf("LD pruning: removed %d of %d variants (%.2f%%) across component cohorts for meta dataset %s",
+                                n_removed, original_count, pct_removed, current_ds))
             }
         } else {
             # Non-meta dataset: filter using this dataset's removed variants
@@ -210,7 +444,10 @@ if (!is.null(opt$removed_variants_file)) {
                 } else if ("locus" %in% names(variant_data)) {
                     variant_data <- variant_data %>% dplyr::filter(!(locus %in% removed_loci))
                 }
-                message(paste("LD pruning: removed", original_count - nrow(variant_data), "variants for dataset", current_ds))
+                n_removed <- original_count - nrow(variant_data)
+                pct_removed <- if (original_count > 0) 100 * n_removed / original_count else 0
+                message(sprintf("LD pruning: removed %d of %d variants (%.2f%%) for dataset %s",
+                                n_removed, original_count, pct_removed, current_ds))
             }
         }
         return(variant_data)
@@ -218,8 +455,16 @@ if (!is.null(opt$removed_variants_file)) {
 }
 
 # Worker function to process a single study
+.last_identifier <- ""  # Track phenotype for GCS cache cleanup
+
 process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_bins_cli) {
     current_study <- study_row
+
+    # Clean up GCS cache when switching to a new phenotype
+    if (!is.null(opt_config$gcs_var_prefix) && current_study$identifier != .last_identifier) {
+        if (nchar(.last_identifier) > 0) cleanup_gcs_temp()
+        .last_identifier <<- current_study$identifier
+    }
 
     # --- 1. Sumstats path handling ---
     sumstats_pattern_template <- current_study$sumstats_filename_pattern
@@ -269,7 +514,33 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
         message(paste("Final output_file_prefix_for_run:", output_file_prefix_for_run))
     }
 
-    # --- 4. Prepare arguments for run_burdenEM_rvas for the current study ---
+    # --- 4. On-the-fly meta construction or GCS download ---
+    preloaded_variant_data <- NULL
+    if (opt_config$verbose) {
+        message(paste("  GCS mode:", !is.null(opt_config$gcs_var_prefix),
+                      "| is_meta:", is_meta_dataset(current_study$dataset),
+                      "| dataset:", current_study$dataset))
+    }
+    if (is_meta_dataset(current_study$dataset)) {
+        # Construct meta variant data on-the-fly from component datasets
+        preloaded_variant_data <- construct_meta_variant_data(
+            study_row = current_study,
+            annotation = opt_config$annotation,
+            freq_range = freq_range_cli,
+            verbose = opt_config$verbose
+        )
+    } else if (!is.null(opt_config$gcs_var_prefix)) {
+        # Non-meta study with GCS: download variant files, then load from temp
+        preloaded_variant_data <- tryCatch({
+            load_variant_data_for_study(current_study, opt_config$annotation, freq_range_cli, opt_config$verbose)
+        }, error = function(e) {
+            warning(paste("Failed to load variant data from GCS for", current_study$dataset, ":", e$message))
+            NULL
+        })
+        # Don't clean up here — cached files are reused by meta studies for the same phenotype
+    }
+
+    # --- 5. Prepare arguments for run_burdenEM_rvas for the current study ---
     run_args <- list(
         variant_dir = derived_variant_dir,
         variant_file_pattern = derived_variant_file_pattern,
@@ -287,7 +558,8 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
         intercept_frequency_bin_edges = icept_freq_bins_cli,
         verbose = opt_config$verbose,
         binary_trait_model_type = opt_config$binary_trait_model_type,
-        optimizer = opt_config$optimizer
+        optimizer = opt_config$optimizer,
+        variant_data = preloaded_variant_data
     )
 
     run_args <- run_args[!sapply(run_args, is.null)]
@@ -302,53 +574,69 @@ process_study_cli <- function(study_row, opt_config, freq_range_cli, icept_freq_
                            ". Output prefix: ", output_file_prefix_for_run)
     }
     message(main_message)
-    do.call(run_burdenEM_rvas, run_args)
-    # tryCatch({
-    #     do.call(run_burdenEM_rvas, run_args)
-    #     if(opt_config$verbose || !opt$no_parallel) { # Also print completion if parallel to confirm it finished
-    #          message(paste0("Completed: ", current_study$identifier, " (", current_study$dataset, ")"))
-    #     }
-    # }, error = function(e) {
-    #     message(paste0("ERROR processing study ", current_study$identifier, " (", current_study$dataset, "): ", e$message))
-    # })
+    tryCatch({
+        do.call(run_burdenEM_rvas, run_args)
+    }, error = function(e) {
+        message(paste0("ERROR processing study ", current_study$identifier, " (", current_study$dataset, "): ", e$message))
+    })
+    # Free per-study memory before moving on (variant data, model fits, etc.)
+    rm(run_args, preloaded_variant_data)
+    gc(verbose = FALSE)
     return(NULL)
 }
 
 # Main loop to process each study defined in the TSV file
 message(paste("Processing", nrow(studies_df), "studies from:", studies_file_path))
 
-if (!opt$no_parallel && nrow(studies_df) > 1) {
-    # Determine number of workers for future_map
-    # future::availableCores() gives logical cores, future::availableCores(logical=FALSE) gives physical
-    # Using availableCores() (logical) is often a good default for multisession
-    num_workers <- future::availableCores()
-    if (is.na(num_workers) || num_workers <= 1) {
-        message("Only one core detected or available. Running sequentially.")
-        # Fallback to sequential execution
-        purrr::map(1:nrow(studies_df),
+# Determine effective worker count (capped to limit memory)
+resolve_num_workers <- function() {
+    if (opt$no_parallel || nrow(studies_df) <= 1) return(1L)
+    avail <- future::availableCores()
+    if (is.na(avail) || avail <= 1) return(1L)
+    requested <- if (!is.null(opt$num_workers)) opt$num_workers else min(4L, avail)
+    max(1L, min(as.integer(requested), as.integer(avail)))
+}
+num_workers <- resolve_num_workers()
+
+run_chunk <- function(row_indices, label = NULL) {
+    if (length(row_indices) == 0) return(invisible(NULL))
+    if (!is.null(label)) message(paste0("--- ", label, " (", length(row_indices), " studies) ---"))
+    if (num_workers <= 1) {
+        purrr::map(row_indices,
                    ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli))
     } else {
-        message(paste("Setting up parallel execution using up to", num_workers, "workers for", nrow(studies_df), "studies."))
-        future::plan(future::multisession, workers = num_workers) # Explicitly set workers
-
-        # furrr::future_map iterates over elements, so we pass indices or rows
-        # Passing indices and subsetting inside .f is common
-        results_list <- furrr::future_map(
-            .x = 1:nrow(studies_df),
+        future::plan(future::multisession, workers = num_workers)
+        on.exit(future::plan(future::sequential), add = TRUE)
+        furrr::future_map(
+            .x = row_indices,
             .f = ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli),
-            .progress = FALSE, #opt$verbose, # Show progress bar if verbose
-            .options = furrr_options(seed = TRUE) # Ensure reproducibility if any RNG is used in worker
+            .progress = FALSE,
+            .options = furrr_options(seed = TRUE)
         )
-        message("Parallel processing finished.")
-        # Reset future plan to default (sequential) after use, if desired, or leave as is for potential subsequent parallel operations
-        # future::plan(future::sequential)
     }
-} else {
-    if (nrow(studies_df) <= 1 && !opt$no_parallel) message("Only one study to process, running sequentially.")
-    else message("Running in sequential mode (--no_parallel specified or only one study/core).")
+    # Free GCS cache between chunks (each phenotype's component files are no longer needed)
+    if (!is.null(opt$gcs_var_prefix)) cleanup_gcs_temp()
+    gc(verbose = FALSE)
+    invisible(NULL)
+}
 
-    purrr::map(1:nrow(studies_df),
-               ~process_study_cli(studies_df[.x, ], opt, frequency_range_cli, intercept_frequency_bin_edges_cli))
+if (opt$no_chunk_by_identifier) {
+    message(paste("Processing all", nrow(studies_df), "studies in one batch with", num_workers, "worker(s)."))
+    run_chunk(seq_len(nrow(studies_df)))
+} else {
+    # Group by phenotype identifier so all 6 datasets sharing component files
+    # process together — maximizes GCS cache reuse and bounds peak disk usage.
+    chunks <- split(seq_len(nrow(studies_df)), studies_df$identifier)
+    # Preserve sorted order
+    chunks <- chunks[unique(studies_df$identifier)]
+    message(paste("Processing", length(chunks), "phenotypes (", nrow(studies_df),
+                  "studies total) with", num_workers, "worker(s) per phenotype."))
+    chunk_idx <- 0
+    for (ident in names(chunks)) {
+        chunk_idx <- chunk_idx + 1
+        run_chunk(chunks[[ident]],
+                  label = sprintf("[%d/%d] phenotype: %s", chunk_idx, length(chunks), ident))
+    }
 }
 
 message("All studies processed.")
